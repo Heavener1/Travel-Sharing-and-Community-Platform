@@ -1,7 +1,14 @@
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import { RouterLink } from "vue-router";
 
 import http from "../api/http";
+import { useUiStore } from "../stores/ui";
+import { getFavoriteIds, shareContent, toggleFavoriteId } from "../utils/collection";
+
+const uiStore = useUiStore();
+const favoriteDestinationIds = ref([]);
+const favoriteStorageKey = "travel_favorite_destinations";
 
 const dashboard = ref({
   destination_count: 0,
@@ -14,13 +21,30 @@ const loading = ref(true);
 const loadError = ref("");
 const skeletonCards = Array.from({ length: 3 }, (_, index) => ({ id: index }));
 
+const recommendationCards = computed(() => recommendations.value || []);
+
+const isFavoriteDestination = (id) => favoriteDestinationIds.value.includes(id);
+
+const toggleFavoriteDestination = (item) => {
+  favoriteDestinationIds.value = toggleFavoriteId(favoriteStorageKey, item.id);
+  uiStore.pushToast(isFavoriteDestination(item.id) ? `已收藏 ${item.name}` : `已取消收藏 ${item.name}`, "success");
+};
+
+const shareDestination = async (item) => {
+  await shareContent({
+    title: item.name,
+    path: `/explore/${item.id}`,
+    summary: item.summary,
+    onSuccess: () => uiStore.pushToast("景点链接已准备好", "success"),
+    onError: () => uiStore.pushToast("分享失败，请稍后再试"),
+  });
+};
+
 onMounted(async () => {
+  favoriteDestinationIds.value = getFavoriteIds(favoriteStorageKey);
   loading.value = true;
   loadError.value = "";
-  const [dashboardResult, recommendationResult] = await Promise.allSettled([
-    http.get("/travel/dashboard/"),
-    http.get("/travel/recommendations/"),
-  ]);
+  const [dashboardResult, recommendationResult] = await Promise.allSettled([http.get("/travel/dashboard/"), http.get("/travel/recommendations/")]);
 
   if (dashboardResult.status === "fulfilled") {
     dashboard.value = dashboardResult.value.data;
@@ -106,7 +130,13 @@ onMounted(async () => {
           <div class="tag-row">
             <span v-for="tag in item.tag_list" :key="tag" class="tag">{{ tag }}</span>
           </div>
-          <RouterLink :to="`/explore/${item.id}`" class="btn btn-secondary">查看详情</RouterLink>
+          <div class="action-row card-action-row">
+            <RouterLink :to="`/explore/${item.id}`" class="btn btn-secondary">查看详情</RouterLink>
+            <button class="btn btn-secondary" @click="toggleFavoriteDestination(item)">
+              {{ isFavoriteDestination(item.id) ? "取消收藏" : "收藏" }}
+            </button>
+            <button class="btn btn-secondary" @click="shareDestination(item)">分享</button>
+          </div>
         </div>
       </div>
     </article>
@@ -117,7 +147,7 @@ onMounted(async () => {
           <p class="eyebrow">推荐灵感</p>
           <h3>基于平台内容生成的出游方向</h3>
         </div>
-        <span class="pill">{{ loading ? "加载中" : `${recommendations.length} 条` }}</span>
+        <span class="pill">{{ loading ? "加载中" : `${recommendationCards.length} 条` }}</span>
       </div>
       <div class="form-grid">
         <div v-if="loading" v-for="item in skeletonCards" :key="`recommend-${item.id}`" class="card skeleton-card">
@@ -128,7 +158,7 @@ onMounted(async () => {
             <span class="skeleton-chip"></span>
           </div>
         </div>
-        <div v-else v-for="item in recommendations" :key="item.id" class="card interactive-card">
+        <div v-else v-for="item in recommendationCards" :key="item.id" class="card interactive-card">
           <div class="split">
             <div>
               <h3>{{ item.name }}</h3>
@@ -136,7 +166,13 @@ onMounted(async () => {
             </div>
             <span class="pill">评分 {{ item.average_rating || item.score }}</span>
           </div>
-          <RouterLink :to="`/explore/${item.id}`" class="btn btn-secondary">查看详情</RouterLink>
+          <div class="action-row card-action-row">
+            <RouterLink :to="`/explore/${item.id}`" class="btn btn-secondary">查看详情</RouterLink>
+            <button class="btn btn-secondary" @click="toggleFavoriteDestination(item)">
+              {{ isFavoriteDestination(item.id) ? "取消收藏" : "收藏" }}
+            </button>
+            <button class="btn btn-secondary" @click="shareDestination(item)">分享</button>
+          </div>
         </div>
       </div>
     </article>

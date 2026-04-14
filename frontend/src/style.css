@@ -790,6 +790,23 @@ h2 {
   gap: 18px;
 }
 
+.filter-bar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.filter-bar .select,
+.filter-bar .input {
+  min-width: 160px;
+  width: auto;
+}
+
+.filter-bar-tight {
+  gap: 10px;
+}
+
 .feed-card {
   padding: 18px 20px;
 }
@@ -813,6 +830,16 @@ h2 {
 
 .post-detail-page {
   gap: 18px;
+}
+
+.detail-page {
+  gap: 18px;
+}
+
+.detail-sticky-bar {
+  position: sticky;
+  top: 12px;
+  z-index: 20;
 }
 
 .post-detail-shell {
@@ -845,6 +872,10 @@ h2 {
   top: 20px;
 }
 
+.detail-cover {
+  height: 280px;
+}
+
 .comment-card {
   border-radius: 20px;
 }
@@ -869,6 +900,64 @@ h2 {
 
 .skeleton-card {
   overflow: hidden;
+}
+
+.empty-state-card {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 28px 24px;
+}
+
+.empty-state-illustration {
+  width: 140px;
+  height: 110px;
+  position: relative;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 24% 28%, rgba(255,255,255,0.85) 0 10px, transparent 11px),
+    radial-gradient(circle at 72% 22%, rgba(255,255,255,0.6) 0 7px, transparent 8px),
+    linear-gradient(180deg, var(--accent-faint), rgba(255,255,255,0.2));
+  overflow: hidden;
+}
+
+.empty-state-illustration::before,
+.empty-state-illustration::after {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+}
+
+.scenic-empty-art::before {
+  left: 14px;
+  right: 14px;
+  bottom: 18px;
+  height: 26px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.scenic-empty-art::after {
+  left: 24px;
+  bottom: 34px;
+  width: 88px;
+  height: 44px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.72), rgba(255,255,255,0.35));
+  clip-path: polygon(0 100%, 22% 42%, 40% 70%, 56% 24%, 72% 58%, 100% 100%);
+}
+
+.review-empty-art::before {
+  inset: auto 26px 18px 26px;
+  height: 36px;
+  background: rgba(255,255,255,0.58);
+}
+
+.review-empty-art::after {
+  width: 62px;
+  height: 62px;
+  left: 39px;
+  top: 26px;
+  background: rgba(255,255,255,0.72);
 }
 
 .skeleton-line,
@@ -978,6 +1067,31 @@ h2 {
   padding-left: 14px;
   border-left: 4px solid rgba(193, 95, 44, 0.45);
   color: var(--text-soft);
+}
+
+.card-action-row {
+  margin-top: 12px;
+}
+
+.reading-progress {
+  position: sticky;
+  top: 0;
+  z-index: 70;
+  width: 100%;
+  height: 4px;
+  margin-bottom: 10px;
+  background: rgba(255, 255, 255, 0.32);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.reading-progress-bar {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+  box-shadow: 0 0 12px rgba(193, 95, 44, 0.25);
+  transition: width 0.12s linear;
 }
 
 @media (max-width: 900px) {

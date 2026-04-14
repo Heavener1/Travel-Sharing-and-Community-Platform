@@ -1,13 +1,18 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
+import { RouterLink } from "vue-router";
 
 import MarkdownContent from "../components/MarkdownContent.vue";
 import http from "../api/http";
 import { streamRequest } from "../api/stream";
 import { chinaRegions } from "../data/chinaRegions";
 import { useAuthStore } from "../stores/auth";
+import { useUiStore } from "../stores/ui";
+import { getFavoriteIds, shareContent, toggleFavoriteId } from "../utils/collection";
 
 const authStore = useAuthStore();
+const uiStore = useUiStore();
+
 const keyword = ref("");
 const loading = ref(false);
 const progress = ref(0);
@@ -16,6 +21,13 @@ const uploadModalOpen = ref(false);
 const uploadLoading = ref(false);
 const uploadError = ref("");
 const initialLoading = ref(true);
+const favoriteDestinationIds = ref([]);
+
+const searchFilter = reactive({
+  source: "all",
+  province: "all",
+  sort: "score_desc",
+});
 
 const searchData = ref({
   keyword: "",
@@ -37,6 +49,8 @@ const uploadForm = reactive({
 
 const provinceOptions = chinaRegions;
 const skeletonCards = Array.from({ length: 4 }, (_, index) => ({ id: index }));
+const favoriteStorageKey = "travel_favorite_destinations";
+
 const cityOptions = computed(() => chinaRegions.find((item) => item.province === uploadForm.province)?.cities || []);
 
 watch(
@@ -62,8 +76,63 @@ const mergedResults = computed(() => {
     }
   }
 
-  return Array.from(resultMap.values());
+  let items = Array.from(resultMap.values());
+
+  if (searchFilter.source !== "all") {
+    items = items.filter((item) => item.sourceLabels.includes(searchFilter.source));
+  }
+
+  if (searchFilter.province !== "all") {
+    items = items.filter((item) => item.province === searchFilter.province);
+  }
+
+  const sorted = [...items];
+  if (searchFilter.sort === "score_desc") {
+    sorted.sort((a, b) => Number(b.average_rating || b.score || 0) - Number(a.average_rating || a.score || 0));
+  }
+  if (searchFilter.sort === "score_asc") {
+    sorted.sort((a, b) => Number(a.average_rating || a.score || 0) - Number(b.average_rating || b.score || 0));
+  }
+  if (searchFilter.sort === "name_asc") {
+    sorted.sort((a, b) => String(a.name).localeCompare(String(b.name), "zh-CN"));
+  }
+  if (searchFilter.sort === "latest") {
+    sorted.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  }
+  return sorted;
 });
+
+const featuredResults = computed(() => {
+  const items = [...searchData.value.featured_results];
+  const filtered = items.filter((item) => searchFilter.province === "all" || item.province === searchFilter.province);
+  if (searchFilter.sort === "score_asc") {
+    filtered.sort((a, b) => Number(a.average_rating || a.score || 0) - Number(b.average_rating || b.score || 0));
+  } else if (searchFilter.sort === "latest") {
+    filtered.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  } else if (searchFilter.sort === "name_asc") {
+    filtered.sort((a, b) => String(a.name).localeCompare(String(b.name), "zh-CN"));
+  } else {
+    filtered.sort((a, b) => Number(b.average_rating || b.score || 0) - Number(a.average_rating || a.score || 0));
+  }
+  return filtered;
+});
+
+const isFavoriteDestination = (id) => favoriteDestinationIds.value.includes(id);
+
+const toggleFavoriteDestination = (item) => {
+  favoriteDestinationIds.value = toggleFavoriteId(favoriteStorageKey, item.id);
+  uiStore.pushToast(isFavoriteDestination(item.id) ? `已收藏 ${item.name}` : `已取消收藏 ${item.name}`, "success");
+};
+
+const shareDestination = async (item) => {
+  await shareContent({
+    title: item.name,
+    path: `/explore/${item.id}`,
+    summary: item.summary,
+    onSuccess: () => uiStore.pushToast("景点链接已准备好", "success"),
+    onError: () => uiStore.pushToast("分享失败，请稍后再试"),
+  });
+};
 
 const resetUploadForm = () => {
   uploadForm.name = "";
@@ -155,7 +224,10 @@ const submitDestination = async () => {
   }
 };
 
-onMounted(fetchSmartResults);
+onMounted(async () => {
+  favoriteDestinationIds.value = getFavoriteIds(favoriteStorageKey);
+  await fetchSmartResults();
+});
 </script>
 
 <template>
@@ -176,47 +248,36 @@ onMounted(fetchSmartResults);
   </section>
 
   <section v-if="searchData.keyword" class="panel">
-    <p class="eyebrow">AI 智能总结</p>
+    <div class="split">
+      <div>
+        <p class="eyebrow">AI 智能总结</p>
+        <h3>综合检索与智能推荐结果</h3>
+      </div>
+      <div class="filter-bar filter-bar-tight">
+        <select v-model="searchFilter.source" class="select">
+          <option value="all">全部来源</option>
+          <option value="ES">仅看 ES</option>
+          <option value="MySQL">仅看 MySQL</option>
+        </select>
+        <select v-model="searchFilter.province" class="select">
+          <option value="all">全部省份</option>
+          <option v-for="item in provinceOptions" :key="item.province" :value="item.province">{{ item.province }}</option>
+        </select>
+        <select v-model="searchFilter.sort" class="select">
+          <option value="score_desc">评分从高到低</option>
+          <option value="score_asc">评分从低到高</option>
+          <option value="latest">最新上传优先</option>
+          <option value="name_asc">按名称排序</option>
+        </select>
+      </div>
+    </div>
+
     <p v-if="searchData.ai_error" class="muted">{{ searchData.ai_error }}</p>
-    <div v-if="searchData.ai_summary" class="card" style="margin-top: 14px;">
+    <div v-if="searchData.ai_summary" class="card markdown-wrap" style="margin-top: 14px;">
       <MarkdownContent :content="searchData.ai_summary" />
     </div>
-  </section>
 
-  <section v-if="!searchData.keyword" class="panel">
-    <div class="split">
-      <p class="eyebrow">热门景点</p>
-      <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated" @click="uploadModalOpen = true">
-        上传景点
-      </button>
-    </div>
-    <div class="list-grid">
-      <article v-if="initialLoading" v-for="item in skeletonCards" :key="`featured-${item.id}`" class="card skeleton-card">
-        <div class="skeleton-media"></div>
-        <div class="skeleton-line skeleton-line-title"></div>
-        <div class="skeleton-line skeleton-line-subtitle"></div>
-        <div class="skeleton-line"></div>
-        <div class="skeleton-actions">
-          <span class="skeleton-chip"></span>
-          <span class="skeleton-chip"></span>
-        </div>
-      </article>
-      <article v-for="item in searchData.featured_results" :key="item.id" class="card interactive-card">
-        <img v-if="item.cover" :src="item.cover" :alt="item.name" class="cover" />
-        <h3>{{ item.name }}</h3>
-        <p class="muted">{{ item.city }} · {{ item.province }}</p>
-        <p class="summary-two-lines">{{ item.summary }}</p>
-        <div class="split">
-          <span class="pill">评分 {{ item.average_rating }}</span>
-          <RouterLink :to="`/explore/${item.id}`" class="btn btn-secondary">查看详情</RouterLink>
-        </div>
-      </article>
-    </div>
-  </section>
-
-  <section v-else class="panel">
-    <p class="eyebrow">综合命中结果</p>
-    <div class="form-grid">
+    <div class="form-grid" style="margin-top: 16px;">
       <article v-if="loading" v-for="item in skeletonCards" :key="`result-${item.id}`" class="card skeleton-card">
         <div class="skeleton-media"></div>
         <div class="skeleton-line skeleton-line-title"></div>
@@ -228,8 +289,14 @@ onMounted(fetchSmartResults);
           <span class="skeleton-chip"></span>
         </div>
       </article>
-      <div v-if="!loading && !mergedResults.length" class="card muted">当前没有命中的景点结果。</div>
-      <article v-for="item in mergedResults" :key="`merged-${item.id}`" class="card interactive-card">
+
+      <div v-else-if="!mergedResults.length" class="card empty-state-card">
+        <div class="empty-state-illustration scenic-empty-art"></div>
+        <h3>没有找到匹配景点</h3>
+        <p class="muted">可以换个关键词、调整筛选条件，或者上传一个新的景点内容。</p>
+      </div>
+
+      <article v-else v-for="item in mergedResults" :key="`merged-${item.id}`" class="card interactive-card">
         <img v-if="item.cover" :src="item.cover" :alt="item.name" class="cover" />
         <div class="split">
           <div>
@@ -246,7 +313,72 @@ onMounted(fetchSmartResults);
         </div>
         <div class="split">
           <span class="pill">评分 {{ item.average_rating }}</span>
-          <RouterLink :to="`/explore/${item.id}`" class="btn btn-secondary">查看详情</RouterLink>
+          <div class="action-row">
+            <button class="btn btn-secondary" @click="toggleFavoriteDestination(item)">
+              {{ isFavoriteDestination(item.id) ? "取消收藏" : "收藏" }}
+            </button>
+            <button class="btn btn-secondary" @click="shareDestination(item)">分享</button>
+            <RouterLink :to="`/explore/${item.id}`" class="btn btn-secondary">查看详情</RouterLink>
+          </div>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section v-else class="panel">
+    <div class="split">
+      <div>
+        <p class="eyebrow">热门景点</p>
+        <h3>平台内值得优先浏览的景点内容</h3>
+      </div>
+      <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated" @click="uploadModalOpen = true">上传景点</button>
+    </div>
+
+    <div class="filter-bar" style="margin-top: 16px;">
+      <select v-model="searchFilter.province" class="select">
+        <option value="all">全部省份</option>
+        <option v-for="item in provinceOptions" :key="item.province" :value="item.province">{{ item.province }}</option>
+      </select>
+      <select v-model="searchFilter.sort" class="select">
+        <option value="score_desc">评分从高到低</option>
+        <option value="score_asc">评分从低到高</option>
+        <option value="latest">最新上传优先</option>
+        <option value="name_asc">按名称排序</option>
+      </select>
+    </div>
+
+    <div class="list-grid" style="margin-top: 16px;">
+      <article v-if="initialLoading" v-for="item in skeletonCards" :key="`featured-${item.id}`" class="card skeleton-card">
+        <div class="skeleton-media"></div>
+        <div class="skeleton-line skeleton-line-title"></div>
+        <div class="skeleton-line skeleton-line-subtitle"></div>
+        <div class="skeleton-line"></div>
+        <div class="skeleton-actions">
+          <span class="skeleton-chip"></span>
+          <span class="skeleton-chip"></span>
+        </div>
+      </article>
+
+      <div v-else-if="!featuredResults.length" class="card empty-state-card">
+        <div class="empty-state-illustration scenic-empty-art"></div>
+        <h3>当前筛选下暂无景点</h3>
+        <p class="muted">你可以切换省份筛选，或者直接上传一个新的景点资料。</p>
+      </div>
+
+      <article v-else v-for="item in featuredResults" :key="item.id" class="card interactive-card">
+        <img v-if="item.cover" :src="item.cover" :alt="item.name" class="cover" />
+        <h3>{{ item.name }}</h3>
+        <p class="muted">{{ item.city }} · {{ item.province }}</p>
+        <p class="summary-two-lines">{{ item.summary }}</p>
+        <div class="split">
+          <span class="pill">评分 {{ item.average_rating }}</span>
+          <div class="action-row">
+            <button class="btn btn-secondary" @click="toggleFavoriteDestination(item)">
+              {{ isFavoriteDestination(item.id) ? "取消收藏" : "收藏" }}
+            </button>
+            <button class="btn btn-secondary" @click="shareDestination(item)">分享</button>
+            <RouterLink :to="`/explore/${item.id}`" class="btn btn-secondary">查看详情</RouterLink>
+          </div>
         </div>
       </article>
     </div>
@@ -269,12 +401,12 @@ onMounted(fetchSmartResults);
           <option v-for="city in cityOptions" :key="city" :value="city">{{ city }}</option>
         </select>
         <textarea v-model="uploadForm.summary" class="textarea" placeholder="景点简介"></textarea>
-        <input v-model="uploadForm.tags" class="input" placeholder="标签，可选" />
-        <input v-model="uploadForm.cover" class="input" placeholder="封面图片引用，可选" />
+        <input v-model="uploadForm.cover" class="input" placeholder="景点封面引用" />
         <input class="input" type="file" accept="image/*" @change="uploadCover" />
+        <input v-model="uploadForm.tags" class="input" placeholder="标签，例如：自然风光,亲子,历史人文" />
         <p v-if="uploadError" class="muted">{{ uploadError }}</p>
         <button class="btn btn-primary" :disabled="uploadLoading" @click="submitDestination">
-          {{ uploadLoading ? "提交中..." : "提交景点" }}
+          {{ uploadLoading ? "上传中..." : "提交景点" }}
         </button>
       </div>
     </div>
