@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 
+import { pinia } from "../stores";
+import { useUiStore } from "../stores/ui";
 import AdminDashboardView from "../views/AdminDashboardView.vue";
 import CommunityView from "../views/CommunityView.vue";
 import ExploreView from "../views/ExploreView.vue";
@@ -23,6 +25,21 @@ const router = createRouter({
     { path: "/admin-panel", component: AdminDashboardView, meta: { title: "管理后台" } },
     { path: "/profile", component: ProfileView, meta: { title: "个人中心" } },
   ],
+});
+
+router.beforeEach((to, from, next) => {
+  const uiStore = useUiStore(pinia);
+  if (to.fullPath !== from.fullPath) {
+    uiStore.setRouteLoading(true);
+  }
+  next();
+});
+
+router.afterEach(() => {
+  const uiStore = useUiStore(pinia);
+  window.setTimeout(() => {
+    uiStore.setRouteLoading(false);
+  }, 180);
 });
 
 export default router;

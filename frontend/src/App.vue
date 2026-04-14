@@ -5,14 +5,18 @@ import { useRoute } from "vue-router";
 import http from "./api/http";
 import { useAuthStore } from "./stores/auth";
 import { useNotificationStore } from "./stores/notifications";
+import { useUiStore } from "./stores/ui";
+import { THEMES, applyTheme, getStoredTheme } from "./utils/theme";
 
 const route = useRoute();
 const authStore = useAuthStore();
 const notificationStore = useNotificationStore();
+const uiStore = useUiStore();
 
 const authModalOpen = ref(false);
 const authMode = ref("login");
 const authError = ref("");
+const currentTheme = ref(getStoredTheme());
 const captcha = reactive({ key: "", image: "" });
 
 const loginForm = reactive({
@@ -48,7 +52,15 @@ const navItems = computed(() => {
 });
 
 const routeTitle = computed(() => route.meta.title || "旅游分享与交流平台");
-const displayName = computed(() => authStore.user?.display_name || authStore.user?.nickname || authStore.user?.first_name || authStore.user?.email || authStore.user?.username || "游客模式");
+const displayName = computed(
+  () =>
+    authStore.user?.display_name ||
+    authStore.user?.nickname ||
+    authStore.user?.first_name ||
+    authStore.user?.email ||
+    authStore.user?.username ||
+    "游客模式",
+);
 
 const refreshCaptcha = async () => {
   const { data } = await http.get("/auth/captcha/");
@@ -73,9 +85,7 @@ const closeAuthModal = () => {
 };
 
 const extractErrorMessage = (error, fallback) =>
-  error?.response?.data?.non_field_errors?.[0] ||
-  error?.response?.data?.detail ||
-  fallback;
+  error?.response?.data?.non_field_errors?.[0] || error?.response?.data?.detail || fallback;
 
 const submitLogin = async () => {
   authError.value = "";
@@ -107,22 +117,26 @@ const handleNotificationClick = async () => {
   }
 };
 
+const switchTheme = () => {
+  const currentIndex = THEMES.findIndex((item) => item.value === currentTheme.value);
+  const nextTheme = THEMES[(currentIndex + 1) % THEMES.length].value;
+  currentTheme.value = applyTheme(nextTheme);
+};
+
 watch(
   () => authStore.isAuthenticated,
   async (authenticated) => {
     if (authenticated) {
       try {
         await notificationStore.fetchNotifications();
+        notificationStore.startPolling();
       } catch {
         notificationStore.reset();
-        return;
       }
-      notificationStore.startPolling();
       return;
     }
     notificationStore.reset();
   },
-  { immediate: false },
 );
 
 watch(
@@ -135,6 +149,7 @@ watch(
 );
 
 onMounted(async () => {
+  currentTheme.value = applyTheme(currentTheme.value);
   await authStore.restore();
   if (authStore.isAuthenticated) {
     try {
@@ -165,6 +180,9 @@ onBeforeUnmount(() => {
           </RouterLink>
         </nav>
         <div class="action-row">
+          <button class="btn theme-toggle-btn" @click="switchTheme">
+            主题 · {{ THEMES.find((item) => item.value === currentTheme)?.label }}
+          </button>
           <template v-if="authStore.isAuthenticated">
             <div class="profile-chip profile-chip-rich">
               <img v-if="authStore.user?.avatar" :src="authStore.user.avatar" alt="avatar" class="mini-avatar" />
@@ -181,10 +199,11 @@ onBeforeUnmount(() => {
     </header>
 
     <main class="page">
-      <section class="page-header">
+      <section class="page-header page-header-rich">
         <div>
           <p class="eyebrow">毕业设计演示系统</p>
           <h2>{{ routeTitle }}</h2>
+          <p class="muted page-subtitle">融合社区分享、景点探索、智能搜索与 AI 行程建议的一体化旅游平台。</p>
         </div>
         <div class="profile-chip profile-chip-rich">
           <img v-if="authStore.user?.avatar" :src="authStore.user.avatar" alt="avatar" class="mini-avatar" />
@@ -194,6 +213,17 @@ onBeforeUnmount(() => {
 
       <RouterView />
     </main>
+
+    <div v-if="uiStore.showGlobalLoading" class="global-loader">
+      <div class="global-loader-card">
+        <div class="loader-shimmer"></div>
+        <div class="loader-lines">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+      </div>
+    </div>
 
     <div v-if="authStore.isAuthenticated" class="notification-fab-wrap">
       <button class="notification-fab" @click="handleNotificationClick">
@@ -272,6 +302,12 @@ onBeforeUnmount(() => {
           </div>
           <button class="btn btn-primary" @click="submitRegister">注册并登录</button>
         </div>
+      </div>
+    </div>
+
+    <div class="toast-stack">
+      <div v-for="toast in uiStore.toasts" :key="toast.id" class="toast-item" :class="`toast-${toast.type}`">
+        {{ toast.message }}
       </div>
     </div>
   </div>

@@ -199,33 +199,36 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section v-if="post" class="page">
-    <article class="panel">
-      <p class="eyebrow">帖子详情</p>
-      <div class="post-author">
-        <div class="comment-line">
-          <img v-if="post.author_avatar" :src="post.author_avatar" alt="avatar" class="author-avatar" />
-          <div>
-            <h3>{{ post.title }}</h3>
-            <p class="muted">{{ post.author_name }} · {{ post.destination_name || "未关联景点" }}</p>
+  <section v-if="post" class="page post-detail-page">
+    <article class="panel post-detail-shell">
+      <div class="post-detail-header">
+        <div class="post-author">
+          <div class="comment-line">
+            <img v-if="post.author_avatar" :src="post.author_avatar" alt="avatar" class="author-avatar" />
+            <div>
+              <p class="eyebrow">帖子详情</p>
+              <h2 class="post-detail-title">{{ post.title }}</h2>
+              <p class="muted">{{ post.author_name }} · {{ post.destination_name || "未关联景点" }}</p>
+            </div>
           </div>
+          <span class="pill">{{ post.like_count }} 赞 · {{ post.comment_count }} 评</span>
         </div>
-        <span class="pill">{{ post.like_count }} 赞 · {{ post.comment_count }} 评</span>
-      </div>
-      <div class="tag-row" v-if="post.tags">
-        <span v-for="tag in post.tags.split(',').filter(Boolean)" :key="tag" class="tag">{{ tag.trim() }}</span>
+
+        <div class="tag-row" v-if="post.tags">
+          <span v-for="tag in post.tags.split(',').filter(Boolean)" :key="tag" class="tag">{{ tag.trim() }}</span>
+        </div>
       </div>
 
-      <div :class="['post-detail-main', { 'post-detail-main-side': isSideLayout }]" style="margin-top: 16px;">
-        <div v-if="post.cover" class="post-detail-media">
+      <div :class="['post-detail-main', { 'post-detail-main-side': isSideLayout }]" style="margin-top: 18px;">
+        <div v-if="post.cover" class="post-detail-media post-detail-hero-media">
           <img :src="post.cover" :alt="post.title" class="post-detail-cover" />
         </div>
-        <div class="card post-detail-text">
+        <div class="card post-detail-text markdown-wrap">
           <MarkdownContent :content="post.content" />
         </div>
       </div>
 
-      <div class="action-row" style="margin-top: 16px;">
+      <div class="action-row post-detail-actions">
         <button class="btn btn-primary" :disabled="!authStore.isAuthenticated" @click="toggleLike">
           {{ post.current_user_liked ? "取消点赞" : "点赞" }}
         </button>
@@ -233,11 +236,11 @@ onMounted(async () => {
       </div>
     </article>
 
-    <article class="panel">
+    <article class="panel post-detail-summary">
       <div class="split">
         <div>
           <p class="eyebrow">AI 总结</p>
-          <h3>一键总结帖子内容与评论重点</h3>
+          <h3>一键提炼帖子内容和评论重点</h3>
         </div>
         <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated || summaryLoading" @click="summarizePost">
           {{ summaryLoading ? "总结中..." : "AI 一键总结" }}
@@ -252,58 +255,60 @@ onMounted(async () => {
           <div class="progress-bar" :style="{ width: `${summaryProgress}%` }"></div>
         </div>
         <p class="muted">{{ summaryStatus }}</p>
-        <div v-if="summaryText" class="card">
+        <div v-if="summaryText" class="card markdown-wrap">
           <MarkdownContent :content="summaryText" />
         </div>
       </div>
     </article>
 
-    <article class="panel">
-      <p class="eyebrow">全部评论</p>
-      <div class="form-grid">
-        <div v-if="!post?.comments?.length" class="card muted">当前还没有评论，欢迎留下第一条交流内容。</div>
-        <div v-for="comment in post?.comments || []" :key="comment.id" class="card">
-          <div class="comment-line">
-            <img v-if="comment.author_avatar" :src="comment.author_avatar" alt="comment avatar" class="author-avatar small-avatar" />
-            <div>
-              <strong>{{ comment.author_name }}</strong>
-              <p>{{ comment.content }}</p>
-              <p class="muted">{{ comment.created_at }}</p>
+    <section class="grid-2 post-discussion-grid">
+      <article class="panel">
+        <p class="eyebrow">全部评论</p>
+        <div class="form-grid">
+          <div v-if="!post?.comments?.length" class="card muted">当前还没有评论，欢迎留下第一条交流内容。</div>
+          <div v-for="comment in post?.comments || []" :key="comment.id" class="card comment-card">
+            <div class="comment-line">
+              <img v-if="comment.author_avatar" :src="comment.author_avatar" alt="comment avatar" class="author-avatar small-avatar" />
+              <div class="comment-copy">
+                <strong>{{ comment.author_name }}</strong>
+                <p>{{ comment.content }}</p>
+                <p class="muted">{{ comment.created_at }}</p>
+              </div>
             </div>
-          </div>
-          <div class="action-row" style="margin-top: 12px;">
-            <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated" @click="openReplyModal(comment.id)">
-              回复
-            </button>
-          </div>
-          <div v-if="comment.replies?.length" class="form-grid" style="margin-top: 12px;">
-            <div v-for="reply in comment.replies" :key="reply.id" class="comment-line">
-              <img v-if="reply.author_avatar" :src="reply.author_avatar" alt="reply avatar" class="author-avatar small-avatar" />
-              <div>
-                <strong>{{ reply.author_name }}</strong>
-                <p class="muted">{{ reply.content }}</p>
-                <p class="muted">{{ reply.created_at }}</p>
+            <div class="action-row" style="margin-top: 12px;">
+              <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated" @click="openReplyModal(comment.id)">
+                回复
+              </button>
+            </div>
+            <div v-if="comment.replies?.length" class="form-grid reply-list" style="margin-top: 14px;">
+              <div v-for="reply in comment.replies" :key="reply.id" class="comment-line reply-card">
+                <img v-if="reply.author_avatar" :src="reply.author_avatar" alt="reply avatar" class="author-avatar small-avatar" />
+                <div class="comment-copy">
+                  <strong>{{ reply.author_name }}</strong>
+                  <p class="muted">{{ reply.content }}</p>
+                  <p class="muted">{{ reply.created_at }}</p>
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
-    </article>
+      </article>
 
-    <article class="panel">
-      <p class="eyebrow">参与讨论</p>
-      <div class="form-grid">
-        <textarea
-          v-model="commentDraft"
-          class="textarea"
-          :placeholder="authStore.isAuthenticated ? '写下你对这篇旅行故事的想法' : '登录后可发表评论'"
-          :disabled="!authStore.isAuthenticated || commentLoading"
-        ></textarea>
-        <button class="btn btn-primary" :disabled="!authStore.isAuthenticated || commentLoading" @click="submitComment">
-          {{ commentLoading ? "提交中..." : "发布评论" }}
-        </button>
-      </div>
-    </article>
+      <article class="panel discussion-panel">
+        <p class="eyebrow">参与讨论</p>
+        <div class="form-grid">
+          <textarea
+            v-model="commentDraft"
+            class="textarea"
+            :placeholder="authStore.isAuthenticated ? '写下你对这篇旅行故事的想法' : '登录后可发表评论'"
+            :disabled="!authStore.isAuthenticated || commentLoading"
+          ></textarea>
+          <button class="btn btn-primary" :disabled="!authStore.isAuthenticated || commentLoading" @click="submitComment">
+            {{ commentLoading ? "提交中..." : "发布评论" }}
+          </button>
+        </div>
+      </article>
+    </section>
   </section>
 
   <div v-if="editModalOpen" class="modal-backdrop" @click.self="editModalOpen = false">
@@ -337,12 +342,7 @@ onMounted(async () => {
         <button class="btn btn-secondary" @click="replyModalOpen = false">关闭</button>
       </div>
       <div class="form-grid">
-        <textarea
-          v-model="replyDraft"
-          class="textarea"
-          placeholder="写下你的回复"
-          :disabled="replyLoading"
-        ></textarea>
+        <textarea v-model="replyDraft" class="textarea" placeholder="写下你的回复" :disabled="replyLoading"></textarea>
         <button class="btn btn-primary" :disabled="replyLoading" @click="submitReply">
           {{ replyLoading ? "提交中..." : "提交回复" }}
         </button>
@@ -350,7 +350,14 @@ onMounted(async () => {
     </div>
   </div>
 
-  <section v-if="loading" class="panel">
-    <p class="muted">正在加载帖子详情...</p>
+  <section v-if="loading" class="page">
+    <article class="panel skeleton-card">
+      <div class="skeleton-line skeleton-line-title"></div>
+      <div class="skeleton-line skeleton-line-subtitle"></div>
+      <div class="skeleton-media skeleton-media-large"></div>
+      <div class="skeleton-line"></div>
+      <div class="skeleton-line"></div>
+      <div class="skeleton-line skeleton-line-short"></div>
+    </article>
   </section>
 </template>
