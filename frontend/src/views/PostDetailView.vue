@@ -3,12 +3,14 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 
 import MarkdownContent from "../components/MarkdownContent.vue";
+import { useReadingProgress } from "../composables/useReadingProgress";
 import http from "../api/http";
 import { streamRequest } from "../api/stream";
 import { useAuthStore } from "../stores/auth";
 
 const route = useRoute();
 const authStore = useAuthStore();
+const { readingProgress } = useReadingProgress();
 
 const post = ref(null);
 const loading = ref(false);
@@ -37,6 +39,17 @@ const coverLayout = ref("stack");
 
 const canEdit = computed(() => authStore.isAuthenticated && post.value?.author === authStore.user?.id);
 const isSideLayout = computed(() => coverLayout.value === "side");
+
+const scrollToSection = (id) => {
+  const element = document.getElementById(id);
+  if (element) {
+    element.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+};
+
+const backToTop = () => {
+  window.scrollTo({ top: 0, behavior: "smooth" });
+};
 
 const detectCoverLayout = (coverUrl) => {
   if (!coverUrl) {
@@ -200,7 +213,21 @@ onMounted(async () => {
 
 <template>
   <section v-if="post" class="page post-detail-page">
-    <article class="panel post-detail-shell">
+    <div class="reading-progress">
+      <div class="reading-progress-bar" :style="{ width: `${readingProgress}%` }"></div>
+    </div>
+
+    <div class="detail-sticky-bar">
+      <div class="filter-bar filter-bar-tight">
+        <button class="btn btn-secondary btn-compact" @click="scrollToSection('post-overview')">帖子正文</button>
+        <button class="btn btn-secondary btn-compact" @click="scrollToSection('post-summary')">AI 总结</button>
+        <button class="btn btn-secondary btn-compact" @click="scrollToSection('post-comments')">全部评论</button>
+        <button class="btn btn-secondary btn-compact" @click="scrollToSection('post-discuss')">参与讨论</button>
+        <button class="btn theme-toggle-btn btn-compact" @click="backToTop">返回顶部</button>
+      </div>
+    </div>
+
+    <article id="post-overview" class="panel post-detail-shell">
       <div class="post-detail-header">
         <div class="post-author">
           <div class="comment-line">
@@ -236,7 +263,7 @@ onMounted(async () => {
       </div>
     </article>
 
-    <article class="panel post-detail-summary">
+    <article id="post-summary" class="panel post-detail-summary">
       <div class="split">
         <div>
           <p class="eyebrow">AI 总结</p>
@@ -262,7 +289,7 @@ onMounted(async () => {
     </article>
 
     <section class="grid-2 post-discussion-grid">
-      <article class="panel">
+      <article id="post-comments" class="panel">
         <p class="eyebrow">全部评论</p>
         <div class="form-grid">
           <div v-if="!post?.comments?.length" class="card muted">当前还没有评论，欢迎留下第一条交流内容。</div>
@@ -294,7 +321,7 @@ onMounted(async () => {
         </div>
       </article>
 
-      <article class="panel discussion-panel">
+      <article id="post-discuss" class="panel discussion-panel">
         <p class="eyebrow">参与讨论</p>
         <div class="form-grid">
           <textarea

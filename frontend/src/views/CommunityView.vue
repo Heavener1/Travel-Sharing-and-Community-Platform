@@ -1,16 +1,22 @@
 <script setup>
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { RouterLink } from "vue-router";
 
 import MarkdownContent from "../components/MarkdownContent.vue";
 import http from "../api/http";
 import { streamRequest } from "../api/stream";
 import { useAuthStore } from "../stores/auth";
+import { useUiStore } from "../stores/ui";
+import { getFavoriteIds, shareContent, toggleFavoriteId } from "../utils/collection";
 
 const authStore = useAuthStore();
+const uiStore = useUiStore();
+
 const posts = ref([]);
 const destinations = ref([]);
 const loading = ref(true);
+const favoritePostIds = ref([]);
+
 const form = reactive({
   title: "",
   content: "",
@@ -18,6 +24,7 @@ const form = reactive({
   destination: "",
   tags: "",
 });
+
 const coverPreview = ref("");
 const commentDrafts = reactive({});
 const replyDrafts = reactive({});
@@ -26,6 +33,12 @@ const commentModalOpen = ref(false);
 const replyModalOpen = ref(false);
 const activePostId = ref(null);
 const activeCommentId = ref(null);
+
+const feedFilter = reactive({
+  destination: "all",
+  sort: "latest",
+});
+
 const aiPolishLoading = ref(false);
 const aiPolishProgress = ref(0);
 const aiPolishStatus = ref("");
@@ -37,6 +50,24 @@ const aiComparison = reactive({
 });
 
 const skeletonPosts = Array.from({ length: 4 }, (_, index) => ({ id: index }));
+const postFavoriteStorageKey = "travel_favorite_posts";
+
+const filteredPosts = computed(() => {
+  const items = posts.value.filter((item) => feedFilter.destination === "all" || String(item.destination || "") === feedFilter.destination);
+  const sorted = [...items];
+  if (feedFilter.sort === "latest") {
+    sorted.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  }
+  if (feedFilter.sort === "hot") {
+    sorted.sort((a, b) => b.like_count + b.comment_count - (a.like_count + a.comment_count));
+  }
+  if (feedFilter.sort === "comments") {
+    sorted.sort((a, b) => b.comment_count - a.comment_count);
+  }
+  return sorted;
+});
+
+const isPostFavorite = (postId) => favoritePostIds.value.includes(postId);
 
 const fetchPosts = async () => {
   loading.value = true;
@@ -77,8 +108,7 @@ const resetPostForm = () => {
 const applySelectedPolish = () => {
   form.title =
     aiComparison.selected.title === "polished" ? aiComparison.polished.title || aiComparison.original.title : aiComparison.original.title;
-  form.tags =
-    aiComparison.selected.tags === "polished" ? aiComparison.polished.tags || aiComparison.original.tags : aiComparison.original.tags;
+  form.tags = aiComparison.selected.tags === "polished" ? aiComparison.polished.tags || aiComparison.original.tags : aiComparison.original.tags;
   form.content =
     aiComparison.selected.content === "polished"
       ? aiComparison.polished.content || aiComparison.original.content
@@ -151,6 +181,7 @@ const polishPost = async () => {
     const titleMatch = text.match(/标题[:：]\s*(.*)/);
     const contentMatch = text.match(/正文[:：]\s*([\s\S]*?)标签建议[:：]/);
     const tagsMatch = text.match(/标签建议[:：]\s*(.*)/);
+
     aiComparison.polished.title = titleMatch ? titleMatch[1].trim() : aiComparison.original.title;
     aiComparison.polished.content = contentMatch ? contentMatch[1].trim() : aiComparison.original.content;
     aiComparison.polished.tags = tagsMatch ? tagsMatch[1].trim() : aiComparison.original.tags;
@@ -169,6 +200,21 @@ const polishPost = async () => {
 const toggleLike = async (postId) => {
   await http.post(`/social/posts/${postId}/like/`);
   await fetchPosts();
+};
+
+const toggleFavoritePost = (post) => {
+  favoritePostIds.value = toggleFavoriteId(postFavoriteStorageKey, post.id);
+  uiStore.pushToast(isPostFavorite(post.id) ? `已收藏《${post.title}》` : `已取消收藏《${post.title}》`, "success");
+};
+
+const sharePost = async (post) => {
+  await shareContent({
+    title: post.title,
+    path: `/community/${post.id}`,
+    summary: post.content_preview,
+    onSuccess: () => uiStore.pushToast("分享链接已准备好", "success"),
+    onError: () => uiStore.pushToast("分享失败，请稍后再试"),
+  });
 };
 
 const openCommentModal = (postId) => {
@@ -202,6 +248,7 @@ const submitComment = async (postId, parentId = null) => {
 };
 
 onMounted(async () => {
+  favoritePostIds.value = getFavoriteIds(postFavoriteStorageKey);
   await Promise.all([fetchPosts(), fetchDestinations()]);
 });
 </script>
@@ -220,6 +267,20 @@ onMounted(async () => {
     </div>
   </section>
 
+  <section class="panel">
+    <div class="filter-bar">
+      <select v-model="feedFilter.destination" class="select">
+        <option value="all">全部景点</option>
+        <option v-for="item in destinations" :key="item.id" :value="String(item.id)">{{ item.name }}</option>
+      </select>
+      <select v-model="feedFilter.sort" class="select">
+        <option value="latest">最新发布</option>
+        <option value="hot">热度优先</option>
+        <option value="comments">评论最多</option>
+      </select>
+    </div>
+  </section>
+
   <section class="community-feed">
     <article v-if="loading" v-for="item in skeletonPosts" :key="`skeleton-${item.id}`" class="card feed-card skeleton-card">
       <div class="skeleton-line skeleton-line-title"></div>
@@ -234,7 +295,13 @@ onMounted(async () => {
       </div>
     </article>
 
-    <article v-else v-for="post in posts" :key="post.id" class="card feed-card interactive-card">
+    <div v-else-if="!filteredPosts.length" class="card empty-state-card">
+      <div class="empty-state-illustration review-empty-art"></div>
+      <h3>当前筛选下暂无帖子</h3>
+      <p class="muted">可以切换景点或排序方式，也可以自己发布一篇新的旅行故事。</p>
+    </div>
+
+    <article v-else v-for="post in filteredPosts" :key="post.id" class="card feed-card interactive-card">
       <div class="feed-card-top">
         <div class="post-author">
           <img v-if="post.author_avatar" :src="post.author_avatar" alt="author avatar" class="author-avatar" />
@@ -257,6 +324,10 @@ onMounted(async () => {
         <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated" @click="toggleLike(post.id)">
           {{ post.current_user_liked ? "取消点赞" : "点赞" }}
         </button>
+        <button class="btn btn-secondary" @click="toggleFavoritePost(post)">
+          {{ isPostFavorite(post.id) ? "取消收藏" : "收藏" }}
+        </button>
+        <button class="btn btn-secondary" @click="sharePost(post)">分享</button>
         <button class="btn btn-primary" :disabled="!authStore.isAuthenticated" @click="openCommentModal(post.id)">评论</button>
       </div>
     </article>
@@ -301,17 +372,42 @@ onMounted(async () => {
               <p><strong>润色前：</strong>{{ aiComparison.original.title || "未填写" }}</p>
               <p><strong>润色后：</strong>{{ aiComparison.polished.title || "未生成" }}</p>
               <div class="action-row">
-                <button class="btn" :class="aiComparison.selected.title === 'original' ? 'btn-secondary' : 'btn-primary'" @click="aiComparison.selected.title = 'original'; applySelectedPolish()">使用润色前</button>
-                <button class="btn" :class="aiComparison.selected.title === 'polished' ? 'btn-secondary' : 'btn-primary'" @click="aiComparison.selected.title = 'polished'; applySelectedPolish()">使用润色后</button>
+                <button
+                  class="btn"
+                  :class="aiComparison.selected.title === 'original' ? 'btn-secondary' : 'btn-primary'"
+                  @click="aiComparison.selected.title = 'original'; applySelectedPolish()"
+                >
+                  使用润色前
+                </button>
+                <button
+                  class="btn"
+                  :class="aiComparison.selected.title === 'polished' ? 'btn-secondary' : 'btn-primary'"
+                  @click="aiComparison.selected.title = 'polished'; applySelectedPolish()"
+                >
+                  使用润色后
+                </button>
               </div>
             </div>
+
             <div class="card">
               <p class="eyebrow">标签对比</p>
               <p><strong>润色前：</strong>{{ aiComparison.original.tags || "未填写" }}</p>
               <p><strong>润色后：</strong>{{ aiComparison.polished.tags || "未生成" }}</p>
               <div class="action-row">
-                <button class="btn" :class="aiComparison.selected.tags === 'original' ? 'btn-secondary' : 'btn-primary'" @click="aiComparison.selected.tags = 'original'; applySelectedPolish()">使用润色前</button>
-                <button class="btn" :class="aiComparison.selected.tags === 'polished' ? 'btn-secondary' : 'btn-primary'" @click="aiComparison.selected.tags = 'polished'; applySelectedPolish()">使用润色后</button>
+                <button
+                  class="btn"
+                  :class="aiComparison.selected.tags === 'original' ? 'btn-secondary' : 'btn-primary'"
+                  @click="aiComparison.selected.tags = 'original'; applySelectedPolish()"
+                >
+                  使用润色前
+                </button>
+                <button
+                  class="btn"
+                  :class="aiComparison.selected.tags === 'polished' ? 'btn-secondary' : 'btn-primary'"
+                  @click="aiComparison.selected.tags = 'polished'; applySelectedPolish()"
+                >
+                  使用润色后
+                </button>
               </div>
             </div>
           </div>
@@ -329,8 +425,20 @@ onMounted(async () => {
               </div>
             </div>
             <div class="action-row">
-              <button class="btn" :class="aiComparison.selected.content === 'original' ? 'btn-secondary' : 'btn-primary'" @click="aiComparison.selected.content = 'original'; applySelectedPolish()">正文使用润色前</button>
-              <button class="btn" :class="aiComparison.selected.content === 'polished' ? 'btn-secondary' : 'btn-primary'" @click="aiComparison.selected.content = 'polished'; applySelectedPolish()">正文使用润色后</button>
+              <button
+                class="btn"
+                :class="aiComparison.selected.content === 'original' ? 'btn-secondary' : 'btn-primary'"
+                @click="aiComparison.selected.content = 'original'; applySelectedPolish()"
+              >
+                正文使用润色前
+              </button>
+              <button
+                class="btn"
+                :class="aiComparison.selected.content === 'polished' ? 'btn-secondary' : 'btn-primary'"
+                @click="aiComparison.selected.content = 'polished'; applySelectedPolish()"
+              >
+                正文使用润色后
+              </button>
             </div>
           </div>
         </div>

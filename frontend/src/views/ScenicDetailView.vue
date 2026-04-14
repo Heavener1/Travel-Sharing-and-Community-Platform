@@ -3,12 +3,14 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 
 import MarkdownContent from "../components/MarkdownContent.vue";
+import { useReadingProgress } from "../composables/useReadingProgress";
 import http from "../api/http";
 import { streamRequest } from "../api/stream";
 import { useAuthStore } from "../stores/auth";
 
 const route = useRoute();
 const authStore = useAuthStore();
+const { readingProgress } = useReadingProgress();
 
 const destination = ref(null);
 const loading = ref(false);
@@ -36,6 +38,17 @@ const fetchDestination = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const scrollToSection = (id) => {
+  const element = document.getElementById(id);
+  if (element) {
+    element.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+};
+
+const backToTop = () => {
+  window.scrollTo({ top: 0, behavior: "smooth" });
 };
 
 const submitReview = async () => {
@@ -92,118 +105,144 @@ onMounted(fetchDestination);
 </script>
 
 <template>
-  <section v-if="destination" class="grid-2">
-    <article class="panel">
-      <img v-if="destination.cover" :src="destination.cover" :alt="destination.name" class="cover" />
-      <p class="eyebrow">景点详情</p>
-      <h3>{{ destination.name }}</h3>
-      <p class="muted">{{ destination.city }} · {{ destination.province }}</p>
-      <p>{{ destination.summary }}</p>
-      <div class="tag-row">
-        <span v-for="tag in destination.tag_list" :key="tag" class="tag">{{ tag }}</span>
-      </div>
+  <section v-if="destination" class="page detail-page">
+    <div class="reading-progress">
+      <div class="reading-progress-bar" :style="{ width: `${readingProgress}%` }"></div>
+    </div>
 
-      <div class="stats" style="margin-top: 18px;">
-        <div class="card">
-          <div class="metric">{{ destination.average_rating }}</div>
-          <p class="muted">平均评分</p>
-        </div>
-        <div class="card">
-          <div class="metric">{{ destination.review_count }}</div>
-          <p class="muted">评价数量</p>
-        </div>
-        <div class="card">
-          <div class="metric">{{ destination.suggested_days }}</div>
-          <p class="muted">建议游玩天数</p>
-        </div>
+    <div class="detail-sticky-bar">
+      <div class="filter-bar filter-bar-tight">
+        <button class="btn btn-secondary btn-compact" @click="scrollToSection('scenic-overview')">景点概览</button>
+        <button class="btn btn-secondary btn-compact" @click="scrollToSection('scenic-analysis')">评分分析</button>
+        <button class="btn btn-secondary btn-compact" @click="scrollToSection('scenic-reviews')">用户评价</button>
+        <button class="btn btn-secondary btn-compact" @click="scrollToSection('scenic-review-form')">我要评价</button>
+        <button class="btn theme-toggle-btn btn-compact" @click="backToTop">返回顶部</button>
       </div>
-    </article>
+    </div>
 
-    <article class="panel">
-      <p class="eyebrow">评分统计</p>
-      <div class="form-grid">
-        <div v-for="item in destination.rating_distribution" :key="item.star" class="rating-bar-row">
-          <span>{{ item.star }} 星</span>
-          <div class="progress-track">
-            <div class="progress-bar" :style="{ width: `${(item.count / maxRatingCount) * 100}%` }"></div>
-          </div>
-          <span class="muted">{{ item.count }} 条</span>
+    <section id="scenic-overview" class="grid-2">
+      <article class="panel">
+        <img v-if="destination.cover" :src="destination.cover" :alt="destination.name" class="cover detail-cover" />
+        <p class="eyebrow">景点详情</p>
+        <h2>{{ destination.name }}</h2>
+        <p class="muted">{{ destination.city }} · {{ destination.province }}</p>
+        <p>{{ destination.summary }}</p>
+        <div class="tag-row">
+          <span v-for="tag in destination.tag_list" :key="tag" class="tag">{{ tag }}</span>
         </div>
-      </div>
 
-      <div class="form-grid" style="margin-top: 18px;">
-        <div class="split">
-          <p class="eyebrow">AI 分析</p>
-          <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated || analysisLoading" @click="runAnalysis">
-            {{ analysisLoading ? "分析中..." : "AI 分析当前景点" }}
-          </button>
-        </div>
-        <div v-if="analysisLoading || analysisText || analysisStatus" class="stream-box">
-          <div class="stream-head">
-            <strong>分析进度</strong>
-            <span>{{ analysisProgress }}%</span>
+        <div class="stats" style="margin-top: 18px;">
+          <div class="card">
+            <div class="metric">{{ destination.average_rating }}</div>
+            <p class="muted">平均评分</p>
           </div>
-          <div class="progress-track">
-            <div class="progress-bar" :style="{ width: `${analysisProgress}%` }"></div>
+          <div class="card">
+            <div class="metric">{{ destination.review_count }}</div>
+            <p class="muted">评价数量</p>
           </div>
-          <p class="muted">{{ analysisStatus }}</p>
-          <div v-if="analysisText" class="card">
-            <MarkdownContent :content="analysisText" />
+          <div class="card">
+            <div class="metric">{{ destination.suggested_days }}</div>
+            <p class="muted">建议游玩天数</p>
           </div>
         </div>
-      </div>
-    </article>
-  </section>
+      </article>
 
-  <section class="grid-2">
-    <article class="panel">
-      <p class="eyebrow">用户评价</p>
-      <div class="form-grid">
-        <div v-if="!destination?.reviews?.length" class="card muted">当前还没有评价，欢迎成为第一位评分的用户。</div>
-        <div v-for="review in destination?.reviews || []" :key="review.id" class="card">
-          <div class="post-author">
-            <div class="profile-chip profile-chip-rich">
-              <img v-if="review.author_avatar" :src="review.author_avatar" alt="avatar" class="mini-avatar" />
-              <span>{{ review.display_name || review.nickname || review.username }}</span>
+      <article id="scenic-analysis" class="panel">
+        <p class="eyebrow">评分统计</p>
+        <div class="form-grid">
+          <div v-for="item in destination.rating_distribution" :key="item.star" class="rating-bar-row">
+            <span>{{ item.star }} 星</span>
+            <div class="progress-track">
+              <div class="progress-bar" :style="{ width: `${(item.count / maxRatingCount) * 100}%` }"></div>
             </div>
-            <span class="pill">{{ review.rating }} 星</span>
+            <span class="muted">{{ item.count }} 条</span>
           </div>
-          <p>{{ review.content || "这位用户只进行了评分，没有填写评价内容。" }}</p>
-          <p class="muted">{{ review.created_at }}</p>
         </div>
-      </div>
-    </article>
 
-    <article class="panel">
-      <p class="eyebrow">我要评价</p>
-      <div v-if="destination?.current_user_review" class="card">
-        <h3>你已经评价过这个景点了</h3>
-        <p class="muted">评分：{{ destination.current_user_review.rating }} 星</p>
-        <p>{{ destination.current_user_review.content || "你提交的是仅评分评价。" }}</p>
-      </div>
-      <div v-else class="form-grid">
-        <select v-model="reviewForm.rating" class="select">
-          <option :value="5">5 星</option>
-          <option :value="4">4 星</option>
-          <option :value="3">3 星</option>
-          <option :value="2">2 星</option>
-          <option :value="1">1 星</option>
-        </select>
-        <textarea
-          v-model="reviewForm.content"
-          class="textarea"
-          placeholder="可以只打分不写评价；如果填写评价内容，系统会和评分一起提交。"
-        ></textarea>
-        <p v-if="reviewError" class="muted">{{ reviewError }}</p>
-        <button class="btn btn-primary" :disabled="!authStore.isAuthenticated || submitLoading" @click="submitReview">
-          {{ submitLoading ? "提交中..." : "提交评分与评价" }}
-        </button>
-        <p class="muted">每个用户对同一景点只能评价一次。</p>
-      </div>
-    </article>
+        <div class="form-grid" style="margin-top: 18px;">
+          <div class="split">
+            <p class="eyebrow">AI 分析</p>
+            <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated || analysisLoading" @click="runAnalysis">
+              {{ analysisLoading ? "分析中..." : "AI 分析当前景点" }}
+            </button>
+          </div>
+          <div v-if="analysisLoading || analysisText || analysisStatus" class="stream-box">
+            <div class="stream-head">
+              <strong>分析进度</strong>
+              <span>{{ analysisProgress }}%</span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-bar" :style="{ width: `${analysisProgress}%` }"></div>
+            </div>
+            <p class="muted">{{ analysisStatus }}</p>
+            <div v-if="analysisText" class="card markdown-wrap">
+              <MarkdownContent :content="analysisText" />
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="grid-2">
+      <article id="scenic-reviews" class="panel">
+        <p class="eyebrow">用户评价</p>
+        <div class="form-grid">
+          <div v-if="!destination?.reviews?.length" class="card empty-state-card">
+            <div class="empty-state-illustration review-empty-art"></div>
+            <h3>还没有用户评价</h3>
+            <p class="muted">欢迎成为第一位给这个景点留下评分和体验感受的用户。</p>
+          </div>
+          <div v-for="review in destination?.reviews || []" :key="review.id" class="card">
+            <div class="post-author">
+              <div class="profile-chip profile-chip-rich">
+                <img v-if="review.author_avatar" :src="review.author_avatar" alt="avatar" class="mini-avatar" />
+                <span>{{ review.display_name || review.nickname || review.username }}</span>
+              </div>
+              <span class="pill">{{ review.rating }} 星</span>
+            </div>
+            <p>{{ review.content || "这位用户只进行了评分，没有填写评价内容。" }}</p>
+            <p class="muted">{{ review.created_at }}</p>
+          </div>
+        </div>
+      </article>
+
+      <article id="scenic-review-form" class="panel">
+        <p class="eyebrow">我要评价</p>
+        <div v-if="destination?.current_user_review" class="card">
+          <h3>你已经评价过这个景点了</h3>
+          <p class="muted">评分：{{ destination.current_user_review.rating }} 星</p>
+          <p>{{ destination.current_user_review.content || "你提交的是仅评分评价。" }}</p>
+        </div>
+        <div v-else class="form-grid">
+          <select v-model="reviewForm.rating" class="select">
+            <option :value="5">5 星</option>
+            <option :value="4">4 星</option>
+            <option :value="3">3 星</option>
+            <option :value="2">2 星</option>
+            <option :value="1">1 星</option>
+          </select>
+          <textarea
+            v-model="reviewForm.content"
+            class="textarea"
+            placeholder="可以只打分不写评价；如果填写评价内容，系统会和评分一起提交。"
+          ></textarea>
+          <p v-if="reviewError" class="muted">{{ reviewError }}</p>
+          <button class="btn btn-primary" :disabled="!authStore.isAuthenticated || submitLoading" @click="submitReview">
+            {{ submitLoading ? "提交中..." : "提交评分与评价" }}
+          </button>
+          <p class="muted">每个用户对同一个景点只能评价一次。</p>
+        </div>
+      </article>
+    </section>
   </section>
 
-  <section v-if="loading" class="panel">
-    <p class="muted">正在加载景点详情...</p>
+  <section v-if="loading" class="page">
+    <article class="panel skeleton-card">
+      <div class="skeleton-media skeleton-media-large"></div>
+      <div class="skeleton-line skeleton-line-title"></div>
+      <div class="skeleton-line skeleton-line-subtitle"></div>
+      <div class="skeleton-line"></div>
+      <div class="skeleton-line skeleton-line-short"></div>
+    </article>
   </section>
 </template>
