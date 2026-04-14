@@ -14,7 +14,7 @@ export const useNotificationStore = defineStore("notifications", {
     async fetchNotifications() {
       this.loading = true;
       try {
-        const { data } = await http.get("/social/notifications/");
+        const { data } = await http.get("/social/notifications/", { meta: { silentLoading: true, silentError: true } });
         this.items = data.results || [];
         this.unreadCount = data.unread_count || 0;
       } finally {
@@ -22,7 +22,7 @@ export const useNotificationStore = defineStore("notifications", {
       }
     },
     async markAllRead() {
-      await http.post("/social/notifications/read/");
+      await http.post("/social/notifications/read/", null, { meta: { silentLoading: true, silentError: true } });
       this.unreadCount = 0;
       this.items = this.items.map((item) => ({ ...item, is_read: true }));
     },

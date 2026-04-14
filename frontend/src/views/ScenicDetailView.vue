@@ -57,14 +57,12 @@ const runAnalysis = async () => {
   if (!destination.value) return;
   analysisLoading.value = true;
   analysisProgress.value = 0;
-  analysisStatus.value = "准备分析景点数据...";
+  analysisStatus.value = "正在整理景点评价与评分数据...";
   analysisText.value = "";
   try {
     await streamRequest({
       path: "/ai/destination-analysis/stream/",
-      body: {
-        destination_id: destination.value.id,
-      },
+      body: { destination_id: destination.value.id },
       onEvent: (event, data) => {
         if (event === "progress") {
           analysisProgress.value = data.progress || 0;
@@ -161,7 +159,7 @@ onMounted(fetchDestination);
     <article class="panel">
       <p class="eyebrow">用户评价</p>
       <div class="form-grid">
-        <div v-if="!destination?.reviews?.length" class="card muted">当前还没有评价，欢迎成为第一个评分的人。</div>
+        <div v-if="!destination?.reviews?.length" class="card muted">当前还没有评价，欢迎成为第一位评分的用户。</div>
         <div v-for="review in destination?.reviews || []" :key="review.id" class="card">
           <div class="post-author">
             <div class="profile-chip profile-chip-rich">
@@ -170,7 +168,7 @@ onMounted(fetchDestination);
             </div>
             <span class="pill">{{ review.rating }} 星</span>
           </div>
-          <p>{{ review.content || "这位用户仅打分，没有填写评价内容。" }}</p>
+          <p>{{ review.content || "这位用户只进行了评分，没有填写评价内容。" }}</p>
           <p class="muted">{{ review.created_at }}</p>
         </div>
       </div>

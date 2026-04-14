@@ -10,6 +10,7 @@ import { useAuthStore } from "../stores/auth";
 const authStore = useAuthStore();
 const posts = ref([]);
 const destinations = ref([]);
+const loading = ref(true);
 const form = reactive({
   title: "",
   content: "",
@@ -30,26 +31,21 @@ const aiPolishProgress = ref(0);
 const aiPolishStatus = ref("");
 const aiPolishText = ref("");
 const aiComparison = reactive({
-  original: {
-    title: "",
-    tags: "",
-    content: "",
-  },
-  polished: {
-    title: "",
-    tags: "",
-    content: "",
-  },
-  selected: {
-    title: "original",
-    tags: "original",
-    content: "original",
-  },
+  original: { title: "", tags: "", content: "" },
+  polished: { title: "", tags: "", content: "" },
+  selected: { title: "original", tags: "original", content: "original" },
 });
 
+const skeletonPosts = Array.from({ length: 4 }, (_, index) => ({ id: index }));
+
 const fetchPosts = async () => {
-  const { data } = await http.get("/social/posts/");
-  posts.value = data.results ?? data;
+  loading.value = true;
+  try {
+    const { data } = await http.get("/social/posts/");
+    posts.value = data.results ?? data;
+  } finally {
+    loading.value = false;
+  }
 };
 
 const fetchDestinations = async () => {
@@ -123,6 +119,7 @@ const polishPost = async () => {
   aiComparison.selected.title = "original";
   aiComparison.selected.tags = "original";
   aiComparison.selected.content = "original";
+
   try {
     await streamRequest({
       path: "/ai/polish-post/stream/",
@@ -210,20 +207,35 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="panel">
-    <div class="split">
+  <section class="panel community-hero">
+    <div class="split community-hero-head">
       <div>
         <p class="eyebrow">社区动态</p>
-        <p class="muted">分享真实旅途体验，围绕景点、路线和玩法展开互动。</p>
+        <h3>围绕景点、路线和真实体验展开交流</h3>
+        <p class="muted">分享旅行故事、点赞互动、参与评论，让平台里的每一段旅程都更有温度。</p>
       </div>
       <button class="btn btn-primary btn-compact" :disabled="!authStore.isAuthenticated" @click="postModalOpen = true">
         发布旅行故事
       </button>
     </div>
+  </section>
 
-    <div class="form-grid" style="margin-top: 16px;">
-      <article v-for="post in posts" :key="post.id" class="card">
-        
+  <section class="community-feed">
+    <article v-if="loading" v-for="item in skeletonPosts" :key="`skeleton-${item.id}`" class="card feed-card skeleton-card">
+      <div class="skeleton-line skeleton-line-title"></div>
+      <div class="skeleton-line skeleton-line-subtitle"></div>
+      <div class="skeleton-media"></div>
+      <div class="skeleton-line"></div>
+      <div class="skeleton-line"></div>
+      <div class="skeleton-actions">
+        <span class="skeleton-chip"></span>
+        <span class="skeleton-chip"></span>
+        <span class="skeleton-chip"></span>
+      </div>
+    </article>
+
+    <article v-else v-for="post in posts" :key="post.id" class="card feed-card interactive-card">
+      <div class="feed-card-top">
         <div class="post-author">
           <img v-if="post.author_avatar" :src="post.author_avatar" alt="author avatar" class="author-avatar" />
           <div>
@@ -232,17 +244,22 @@ onMounted(async () => {
           </div>
           <span class="pill">{{ post.like_count }} 赞</span>
         </div>
-        <img v-if="post.cover" :src="post.cover" :alt="post.title" class="cover" />
+      </div>
+
+      <img v-if="post.cover" :src="post.cover" :alt="post.title" class="cover feed-cover" />
+
+      <div class="feed-summary">
         <p class="summary-two-lines">{{ post.content_preview }}</p>
-        <div class="action-row">
-          <RouterLink :to="`/community/${post.id}`" class="btn btn-secondary">查看详情</RouterLink>
-          <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated" @click="toggleLike(post.id)">
-            {{ post.current_user_liked ? "取消点赞" : "点赞" }}
-          </button>
-          <button class="btn btn-primary" :disabled="!authStore.isAuthenticated" @click="openCommentModal(post.id)">评论</button>
-        </div>
-      </article>
-    </div>
+      </div>
+
+      <div class="action-row feed-actions">
+        <RouterLink :to="`/community/${post.id}`" class="btn btn-secondary">查看详情</RouterLink>
+        <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated" @click="toggleLike(post.id)">
+          {{ post.current_user_liked ? "取消点赞" : "点赞" }}
+        </button>
+        <button class="btn btn-primary" :disabled="!authStore.isAuthenticated" @click="openCommentModal(post.id)">评论</button>
+      </div>
+    </article>
   </section>
 
   <div v-if="postModalOpen" class="modal-backdrop" @click.self="postModalOpen = false">
@@ -262,6 +279,7 @@ onMounted(async () => {
         <input class="input" type="file" accept="image/*" @change="uploadCover" />
         <input v-model="form.tags" class="input" placeholder="标签，例如：海边,自驾,日落" />
         <textarea v-model="form.content" class="textarea" placeholder="写下你的路线、花费、体验和建议"></textarea>
+
         <div v-if="aiPolishLoading || aiPolishText || aiPolishStatus" class="stream-box">
           <div class="stream-head">
             <strong>AI 润色进度</strong>
@@ -275,30 +293,16 @@ onMounted(async () => {
             <MarkdownContent :content="aiPolishText" />
           </div>
         </div>
-        <div
-          v-if="aiComparison.polished.title || aiComparison.polished.tags || aiComparison.polished.content"
-          class="form-grid"
-        >
+
+        <div v-if="aiComparison.polished.title || aiComparison.polished.tags || aiComparison.polished.content" class="form-grid">
           <div class="compare-grid">
             <div class="card">
               <p class="eyebrow">标题对比</p>
               <p><strong>润色前：</strong>{{ aiComparison.original.title || "未填写" }}</p>
               <p><strong>润色后：</strong>{{ aiComparison.polished.title || "未生成" }}</p>
               <div class="action-row">
-                <button
-                  class="btn"
-                  :class="aiComparison.selected.title === 'original' ? 'btn-secondary' : 'btn-primary'"
-                  @click="aiComparison.selected.title = 'original'; applySelectedPolish()"
-                >
-                  使用润色前
-                </button>
-                <button
-                  class="btn"
-                  :class="aiComparison.selected.title === 'polished' ? 'btn-secondary' : 'btn-primary'"
-                  @click="aiComparison.selected.title = 'polished'; applySelectedPolish()"
-                >
-                  使用润色后
-                </button>
+                <button class="btn" :class="aiComparison.selected.title === 'original' ? 'btn-secondary' : 'btn-primary'" @click="aiComparison.selected.title = 'original'; applySelectedPolish()">使用润色前</button>
+                <button class="btn" :class="aiComparison.selected.title === 'polished' ? 'btn-secondary' : 'btn-primary'" @click="aiComparison.selected.title = 'polished'; applySelectedPolish()">使用润色后</button>
               </div>
             </div>
             <div class="card">
@@ -306,23 +310,12 @@ onMounted(async () => {
               <p><strong>润色前：</strong>{{ aiComparison.original.tags || "未填写" }}</p>
               <p><strong>润色后：</strong>{{ aiComparison.polished.tags || "未生成" }}</p>
               <div class="action-row">
-                <button
-                  class="btn"
-                  :class="aiComparison.selected.tags === 'original' ? 'btn-secondary' : 'btn-primary'"
-                  @click="aiComparison.selected.tags = 'original'; applySelectedPolish()"
-                >
-                  使用润色前
-                </button>
-                <button
-                  class="btn"
-                  :class="aiComparison.selected.tags === 'polished' ? 'btn-secondary' : 'btn-primary'"
-                  @click="aiComparison.selected.tags = 'polished'; applySelectedPolish()"
-                >
-                  使用润色后
-                </button>
+                <button class="btn" :class="aiComparison.selected.tags === 'original' ? 'btn-secondary' : 'btn-primary'" @click="aiComparison.selected.tags = 'original'; applySelectedPolish()">使用润色前</button>
+                <button class="btn" :class="aiComparison.selected.tags === 'polished' ? 'btn-secondary' : 'btn-primary'" @click="aiComparison.selected.tags = 'polished'; applySelectedPolish()">使用润色后</button>
               </div>
             </div>
           </div>
+
           <div class="card">
             <p class="eyebrow">正文对比</p>
             <div class="compare-grid">
@@ -336,23 +329,12 @@ onMounted(async () => {
               </div>
             </div>
             <div class="action-row">
-              <button
-                class="btn"
-                :class="aiComparison.selected.content === 'original' ? 'btn-secondary' : 'btn-primary'"
-                @click="aiComparison.selected.content = 'original'; applySelectedPolish()"
-              >
-                正文使用润色前
-              </button>
-              <button
-                class="btn"
-                :class="aiComparison.selected.content === 'polished' ? 'btn-secondary' : 'btn-primary'"
-                @click="aiComparison.selected.content = 'polished'; applySelectedPolish()"
-              >
-                正文使用润色后
-              </button>
+              <button class="btn" :class="aiComparison.selected.content === 'original' ? 'btn-secondary' : 'btn-primary'" @click="aiComparison.selected.content = 'original'; applySelectedPolish()">正文使用润色前</button>
+              <button class="btn" :class="aiComparison.selected.content === 'polished' ? 'btn-secondary' : 'btn-primary'" @click="aiComparison.selected.content = 'polished'; applySelectedPolish()">正文使用润色后</button>
             </div>
           </div>
         </div>
+
         <div class="action-row">
           <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated || aiPolishLoading" @click="polishPost">
             {{ aiPolishLoading ? "润色中..." : "AI 润色内容" }}

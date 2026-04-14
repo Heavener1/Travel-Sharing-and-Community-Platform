@@ -24,11 +24,7 @@ const maxTimelineCount = computed(() => {
 });
 
 const maxTrendCount = computed(() => {
-  const allCounts = dashboard.value.recent_trends.flatMap((item) => [
-    item.user_count,
-    item.post_count,
-    item.destination_count,
-  ]);
+  const allCounts = dashboard.value.recent_trends.flatMap((item) => [item.user_count, item.post_count, item.destination_count]);
   return Math.max(...allCounts, 1);
 });
 
@@ -52,29 +48,14 @@ onMounted(() => {
 <template>
   <section v-if="authStore.user?.is_staff" class="page">
     <section class="grid-3">
-      <article class="card">
-        <div class="metric">{{ dashboard.user_count }}</div>
-        <p class="muted">用户数量</p>
-      </article>
-      <article class="card">
-        <div class="metric">{{ dashboard.post_count }}</div>
-        <p class="muted">帖子数量</p>
-      </article>
-      <article class="card">
-        <div class="metric">{{ dashboard.destination_count }}</div>
-        <p class="muted">景点数量</p>
-      </article>
-      <article class="card">
-        <div class="metric">{{ dashboard.comment_count }}</div>
-        <p class="muted">评论数量</p>
-      </article>
-      <article class="card">
-        <div class="metric">{{ dashboard.review_count }}</div>
-        <p class="muted">景点评价数量</p>
-      </article>
+      <article class="card"><div class="metric">{{ dashboard.user_count }}</div><p class="muted">用户数量</p></article>
+      <article class="card"><div class="metric">{{ dashboard.post_count }}</div><p class="muted">帖子数量</p></article>
+      <article class="card"><div class="metric">{{ dashboard.destination_count }}</div><p class="muted">景点数量</p></article>
+      <article class="card"><div class="metric">{{ dashboard.comment_count }}</div><p class="muted">评论数量</p></article>
+      <article class="card"><div class="metric">{{ dashboard.review_count }}</div><p class="muted">景点评价数量</p></article>
       <article class="card">
         <div class="metric">{{ dashboard.pending_post_count + dashboard.pending_comment_count }}</div>
-        <p class="muted">待审核内容</p>
+        <p class="muted">待处理内容</p>
       </article>
     </section>
 
@@ -144,10 +125,7 @@ onMounted(() => {
               <div v-for="segment in item.segments" :key="segment.label" class="rating-bar-row">
                 <span>{{ segment.label }}</span>
                 <div class="progress-track admin-track">
-                  <div
-                    class="progress-bar admin-bar"
-                    :style="{ width: `${(segment.count / maxTimelineCount) * 100}%` }"
-                  ></div>
+                  <div class="progress-bar admin-bar" :style="{ width: `${(segment.count / maxTimelineCount) * 100}%` }"></div>
                 </div>
                 <span class="muted">{{ segment.count }}</span>
               </div>

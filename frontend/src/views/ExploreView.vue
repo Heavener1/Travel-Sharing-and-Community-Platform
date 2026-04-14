@@ -2,9 +2,9 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 
 import MarkdownContent from "../components/MarkdownContent.vue";
-import { chinaRegions } from "../data/chinaRegions";
 import http from "../api/http";
 import { streamRequest } from "../api/stream";
+import { chinaRegions } from "../data/chinaRegions";
 import { useAuthStore } from "../stores/auth";
 
 const authStore = useAuthStore();
@@ -15,15 +15,17 @@ const statusText = ref("");
 const uploadModalOpen = ref(false);
 const uploadLoading = ref(false);
 const uploadError = ref("");
+const initialLoading = ref(true);
+
 const searchData = ref({
   keyword: "",
   es_results: [],
   db_results: [],
   ai_summary: "",
-  ai_provider: "",
   ai_error: "",
   featured_results: [],
 });
+
 const uploadForm = reactive({
   name: "",
   province: "",
@@ -34,10 +36,8 @@ const uploadForm = reactive({
 });
 
 const provinceOptions = chinaRegions;
-const cityOptions = computed(() => {
-  const region = chinaRegions.find((item) => item.province === uploadForm.province);
-  return region?.cities || [];
-});
+const skeletonCards = Array.from({ length: 4 }, (_, index) => ({ id: index }));
+const cityOptions = computed(() => chinaRegions.find((item) => item.province === uploadForm.province)?.cities || []);
 
 watch(
   () => uploadForm.province,
@@ -76,6 +76,7 @@ const resetUploadForm = () => {
 };
 
 const fetchSmartResults = async () => {
+  initialLoading.value = !searchData.value.keyword && !keyword.value;
   loading.value = true;
   progress.value = 0;
   statusText.value = "准备搜索...";
@@ -84,10 +85,10 @@ const fetchSmartResults = async () => {
     es_results: [],
     db_results: [],
     ai_summary: "",
-    ai_provider: "",
     ai_error: "",
     featured_results: [],
   };
+
   try {
     await streamRequest({
       path: `/travel/smart-search/stream/?q=${encodeURIComponent(keyword.value || "")}&hidden_gem=false`,
@@ -106,9 +107,6 @@ const fetchSmartResults = async () => {
         if (event === "db_results") {
           searchData.value.db_results = data.items || [];
         }
-        if (event === "provider") {
-          searchData.value.ai_provider = data.provider || "";
-        }
         if (event === "ai_content") {
           searchData.value.ai_summary = data.content || "";
         }
@@ -126,6 +124,7 @@ const fetchSmartResults = async () => {
     statusText.value = "搜索失败";
   } finally {
     loading.value = false;
+    initialLoading.value = false;
   }
 };
 
@@ -192,7 +191,17 @@ onMounted(fetchSmartResults);
       </button>
     </div>
     <div class="list-grid">
-      <article v-for="item in searchData.featured_results" :key="item.id" class="card">
+      <article v-if="initialLoading" v-for="item in skeletonCards" :key="`featured-${item.id}`" class="card skeleton-card">
+        <div class="skeleton-media"></div>
+        <div class="skeleton-line skeleton-line-title"></div>
+        <div class="skeleton-line skeleton-line-subtitle"></div>
+        <div class="skeleton-line"></div>
+        <div class="skeleton-actions">
+          <span class="skeleton-chip"></span>
+          <span class="skeleton-chip"></span>
+        </div>
+      </article>
+      <article v-for="item in searchData.featured_results" :key="item.id" class="card interactive-card">
         <img v-if="item.cover" :src="item.cover" :alt="item.name" class="cover" />
         <h3>{{ item.name }}</h3>
         <p class="muted">{{ item.city }} · {{ item.province }}</p>
@@ -208,8 +217,19 @@ onMounted(fetchSmartResults);
   <section v-else class="panel">
     <p class="eyebrow">综合命中结果</p>
     <div class="form-grid">
-      <div v-if="!mergedResults.length" class="card muted">当前没有命中的景点结果。</div>
-      <article v-for="item in mergedResults" :key="`merged-${item.id}`" class="card">
+      <article v-if="loading" v-for="item in skeletonCards" :key="`result-${item.id}`" class="card skeleton-card">
+        <div class="skeleton-media"></div>
+        <div class="skeleton-line skeleton-line-title"></div>
+        <div class="skeleton-line skeleton-line-subtitle"></div>
+        <div class="skeleton-line"></div>
+        <div class="skeleton-actions">
+          <span class="skeleton-chip"></span>
+          <span class="skeleton-chip"></span>
+          <span class="skeleton-chip"></span>
+        </div>
+      </article>
+      <div v-if="!loading && !mergedResults.length" class="card muted">当前没有命中的景点结果。</div>
+      <article v-for="item in mergedResults" :key="`merged-${item.id}`" class="card interactive-card">
         <img v-if="item.cover" :src="item.cover" :alt="item.name" class="cover" />
         <div class="split">
           <div>
@@ -242,15 +262,11 @@ onMounted(fetchSmartResults);
         <input v-model="uploadForm.name" class="input" placeholder="景点名称" />
         <select v-model="uploadForm.province" class="select">
           <option value="">选择省份</option>
-          <option v-for="item in provinceOptions" :key="item.province" :value="item.province">
-            {{ item.province }}
-          </option>
+          <option v-for="item in provinceOptions" :key="item.province" :value="item.province">{{ item.province }}</option>
         </select>
         <select v-model="uploadForm.city" class="select" :disabled="!uploadForm.province">
           <option value="">{{ uploadForm.province ? "选择城市" : "请先选择省份" }}</option>
-          <option v-for="city in cityOptions" :key="city" :value="city">
-            {{ city }}
-          </option>
+          <option v-for="city in cityOptions" :key="city" :value="city">{{ city }}</option>
         </select>
         <textarea v-model="uploadForm.summary" class="textarea" placeholder="景点简介"></textarea>
         <input v-model="uploadForm.tags" class="input" placeholder="标签，可选" />

@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from "vue";
+import { reactive, ref } from "vue";
 
 import MarkdownContent from "../components/MarkdownContent.vue";
 import http from "../api/http";
@@ -12,8 +12,9 @@ const form = reactive({
   destination_city: "杭州",
   days: 3,
   budget: 3000,
-  preferences: "海岛,摄影,慢旅行",
+  preferences: "摄影,美食,轻松漫游",
 });
+
 const result = ref(null);
 const aiAdvice = ref("");
 const aiLoading = ref(false);
@@ -35,16 +36,13 @@ const generatePlan = async () => {
 const askAI = async () => {
   aiLoading.value = true;
   aiProgress.value = 0;
-  aiStatus.value = "准备请求 AI...";
+  aiStatus.value = "正在准备 AI 行程建议...";
   aiAdvice.value = "";
   try {
     const draft = result.value ? JSON.stringify(result.value.itinerary) : "";
     await streamRequest({
       path: "/ai/travel-assistant/stream/",
-      body: {
-        ...form,
-        draft_itinerary: draft,
-      },
+      body: { ...form, draft_itinerary: draft },
       onEvent: (event, data) => {
         if (event === "progress") {
           aiProgress.value = data.progress || 0;
@@ -69,8 +67,6 @@ const askAI = async () => {
     aiLoading.value = false;
   }
 };
-
-onMounted(() => {});
 </script>
 
 <template>
@@ -82,7 +78,7 @@ onMounted(() => {});
         <input v-model="form.destination_city" class="input" placeholder="目的地" />
         <input v-model="form.days" class="input" type="number" min="1" max="7" placeholder="出行天数" />
         <input v-model="form.budget" class="input" type="number" min="500" placeholder="预算" />
-        <input v-model="form.preferences" class="input" placeholder="偏好标签，逗号分隔" />
+        <input v-model="form.preferences" class="input" placeholder="偏好标签，用逗号分隔" />
         <button class="btn btn-primary" :disabled="!authStore.isAuthenticated" @click="generatePlan">
           {{ authStore.isAuthenticated ? "生成我的行程" : "登录后可生成行程" }}
         </button>
@@ -96,7 +92,8 @@ onMounted(() => {});
         <div class="card">
           <h3>{{ result.trip.title }}</h3>
           <p class="muted">
-            {{ result.trip.departure_city }} 出发 · 前往 {{ result.trip.destination_city }} · 预算 {{ result.trip.budget }} · {{ result.trip.days }} 天
+            {{ result.trip.departure_city }} 出发 · 前往 {{ result.trip.destination_city }} · 预算 {{ result.trip.budget }} ·
+            {{ result.trip.days }} 天
           </p>
         </div>
         <div v-for="(items, day) in result.itinerary" :key="day" class="card">
@@ -107,7 +104,7 @@ onMounted(() => {});
           </div>
         </div>
       </div>
-      <p v-else class="muted">生成后会展示按天拆分的景点路线建议。</p>
+      <p v-else class="muted">提交后会展示按天拆分的景点路线建议与停留安排。</p>
     </article>
   </section>
 

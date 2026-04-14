@@ -12,6 +12,7 @@ const form = reactive({
   destination_name: "",
   question: "",
 });
+
 const answerText = ref("");
 const answerProgress = ref(0);
 const answerStatus = ref("");
@@ -30,7 +31,7 @@ const askQuestion = async () => {
   answerLoading.value = true;
   answerText.value = "";
   answerProgress.value = 0;
-  answerStatus.value = "准备检索景点资料...";
+  answerStatus.value = "正在检索景点资料...";
   answerMeta.value = { destination_name: "", destination_city: "" };
 
   try {
@@ -81,15 +82,13 @@ onMounted(fetchDestinations);
       <div class="form-grid">
         <select v-model="form.destination_name" class="select">
           <option value="">选择景点</option>
-          <option v-for="item in destinations" :key="item.id" :value="item.name">
-            {{ item.name }} · {{ item.city }}
-          </option>
+          <option v-for="item in destinations" :key="item.id" :value="item.name">{{ item.name }} · {{ item.city }}</option>
         </select>
         <input v-model="form.destination_name" class="input" placeholder="也可以直接输入景点名称" />
         <textarea
           v-model="form.question"
           class="textarea"
-          placeholder="例如：西湖适合玩几天？有什么推荐路线？预算大概多少？"
+          placeholder="例如：西湖适合玩几天？有哪些推荐路线？预算大概多少？"
         ></textarea>
         <button
           class="btn btn-primary"
@@ -98,7 +97,7 @@ onMounted(fetchDestinations);
         >
           {{ answerLoading ? "问答中..." : "开始问答" }}
         </button>
-        <p class="muted">系统会先检索景点资料，再基于景点信息回答你的问题。</p>
+        <p class="muted">系统会先检索景点资料，再基于系统中的景点信息回答你的问题。</p>
       </div>
     </article>
 
@@ -123,9 +122,7 @@ onMounted(fetchDestinations);
       <div v-if="answerText" class="card" style="margin-top: 14px;">
         <MarkdownContent :content="answerText" />
       </div>
-      <p v-else class="muted" style="margin-top: 14px;">
-        提交问题后，这里会实时显示针对景点的智能回答。
-      </p>
+      <p v-else class="muted" style="margin-top: 14px;">提交问题后，这里会实时显示针对景点的智能回答。</p>
     </article>
   </section>
 </template>
