@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.ai.services import AIServiceError, chat_completion, chat_completion_stream, list_providers
+from apps.social.models import Post
 from apps.travel.models import Destination
 
 
@@ -175,6 +176,48 @@ class PostPolishStreamView(APIView):
         model = request.data.get("model")
         prompt = PostPolishView.build_prompt(request)
         return stream_text_response(provider=provider, model=model, prompt=prompt, temperature=0.8)
+
+
+class PostSummaryStreamView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @staticmethod
+    def build_prompt(post):
+        comments = list(post.comments.select_related("author", "author__profile").filter(parent__isnull=True))
+        comment_lines = []
+        for comment in comments[:8]:
+            author_name = getattr(getattr(comment.author, "profile", None), "nickname", "") or comment.author.username
+            reply_count = comment.replies.count()
+            comment_lines.append(
+                f"{author_name}：{comment.content}（回复 {reply_count} 条）"
+            )
+        return (
+            "你是旅游社区的内容总结助手。"
+            "请基于帖子正文和评论，生成适合前端展示的中文总结。"
+            "输出请包含 3 个部分：1. 帖子核心内容 2. 评论关注点 3. 给读者的快速建议。"
+            "请使用 Markdown，简洁清晰，不要编造帖子里没有的信息。\n"
+            f"帖子标题：{post.title}\n"
+            f"关联景点：{post.destination.name if post.destination else '未关联景点'}\n"
+            f"帖子正文：{post.content}\n"
+            f"帖子标签：{post.tags or '无'}\n"
+            f"评论摘要：{'；'.join(comment_lines) if comment_lines else '当前暂无评论'}\n"
+        )
+
+    def post(self, request):
+        post_id = request.data.get("post_id")
+        post = (
+            Post.objects.select_related("destination", "author", "author__profile")
+            .prefetch_related("comments__author__profile", "comments__replies")
+            .filter(pk=post_id)
+            .first()
+        )
+        if not post:
+            return Response({"detail": "没有找到对应帖子。"}, status=status.HTTP_404_NOT_FOUND)
+
+        provider = request.data.get("provider", "qwen")
+        model = request.data.get("model")
+        prompt = self.build_prompt(post)
+        return stream_text_response(provider=provider, model=model, prompt=prompt, temperature=0.5)
 
 
 class ScenicQAView(APIView):

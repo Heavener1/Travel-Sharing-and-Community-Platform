@@ -21,8 +21,12 @@ export const useAuthStore = defineStore("auth", {
       await this.fetchMe();
     },
     async register(payload) {
-      await http.post("/auth/register/", payload);
-      await this.login({ username: payload.username, password: payload.password });
+      const { data } = await http.post("/auth/register/", payload);
+      this.access = data.access;
+      this.refresh = data.refresh;
+      this.user = data.user;
+      localStorage.setItem("travel_access_token", data.access);
+      localStorage.setItem("travel_refresh_token", data.refresh);
     },
     async fetchMe() {
       if (!this.access) return;

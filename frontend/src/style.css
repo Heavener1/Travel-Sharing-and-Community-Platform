@@ -300,13 +300,18 @@ h2 {
 .post-author,
 .comment-line,
 .profile-center,
-.captcha-row {
+.captcha-row,
+.review-header {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
 .post-author {
+  justify-content: space-between;
+}
+
+.review-header {
   justify-content: space-between;
 }
 
@@ -320,6 +325,10 @@ h2 {
 
 .profile-center {
   margin-bottom: 18px;
+}
+
+.profile-layout {
+  align-items: start;
 }
 
 .captcha-row .input {
