@@ -6,6 +6,7 @@ from rest_framework import serializers
 from apps.travel.models import Destination, DestinationReview, Hotel
 from apps.travel.services import resolve_media_url
 from apps.users.serializers import build_default_avatar
+from apps.users.utils import get_user_display_name
 
 
 def build_default_destination_cover(name):
@@ -52,17 +53,20 @@ class HotelSerializer(serializers.ModelSerializer):
 class DestinationReviewSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
     nickname = serializers.CharField(source="user.profile.nickname", read_only=True)
+    display_name = serializers.SerializerMethodField()
     destination_name = serializers.CharField(source="destination.name", read_only=True)
     author_avatar = serializers.SerializerMethodField()
 
     class Meta:
         model = DestinationReview
-        fields = ("id", "rating", "content", "created_at", "username", "nickname", "destination_name", "author_avatar")
+        fields = ("id", "rating", "content", "created_at", "username", "nickname", "display_name", "destination_name", "author_avatar")
 
     def get_author_avatar(self, obj):
         avatar = getattr(getattr(obj.user, "profile", None), "avatar", "")
-        nickname = getattr(getattr(obj.user, "profile", None), "nickname", "") or obj.user.username
-        return resolve_media_url(avatar) or build_default_avatar(nickname)
+        return resolve_media_url(avatar) or build_default_avatar(get_user_display_name(obj.user))
+
+    def get_display_name(self, obj):
+        return get_user_display_name(obj.user)
 
 
 class DestinationSerializer(serializers.ModelSerializer):

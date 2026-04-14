@@ -59,6 +59,32 @@ class PostLike(models.Model):
         unique_together = ("post", "user")
 
 
+class Notification(models.Model):
+    TYPE_CHOICES = (
+        ("post_like", "帖子点赞"),
+        ("post_comment", "帖子评论"),
+        ("comment_reply", "评论回复"),
+    )
+
+    recipient = models.ForeignKey(User, on_delete=models.CASCADE, related_name="notifications")
+    actor = models.ForeignKey(User, on_delete=models.CASCADE, related_name="triggered_notifications")
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True, related_name="notifications")
+    comment = models.ForeignKey(
+        PostComment,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="notifications",
+    )
+    notification_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    message = models.CharField(max_length=255)
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+
 class UserAction(models.Model):
     ACTION_CHOICES = (
         ("view", "浏览"),

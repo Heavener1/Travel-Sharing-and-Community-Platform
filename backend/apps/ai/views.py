@@ -9,6 +9,7 @@ from rest_framework.views import APIView
 from apps.ai.services import AIServiceError, chat_completion, chat_completion_stream, list_providers
 from apps.social.models import Post
 from apps.travel.models import Destination
+from apps.users.utils import get_user_display_name
 
 
 def sse_event(event, data):
@@ -70,7 +71,7 @@ def build_destination_analysis_context(destination):
     for review in destination.reviews.all():
         rating_counts[review.rating] += 1
     review_lines = [
-        f"{(getattr(getattr(review.user, 'profile', None), 'nickname', '') or review.user.username)}：{review.rating}星，评价：{review.content or '仅评分'}"
+        f"{get_user_display_name(review.user)}：{review.rating}星，评价：{review.content or '仅评分'}"
         for review in reviews
     ]
     return (
@@ -186,7 +187,7 @@ class PostSummaryStreamView(APIView):
         comments = list(post.comments.select_related("author", "author__profile").filter(parent__isnull=True))
         comment_lines = []
         for comment in comments[:8]:
-            author_name = getattr(getattr(comment.author, "profile", None), "nickname", "") or comment.author.username
+            author_name = get_user_display_name(comment.author)
             reply_count = comment.replies.count()
             comment_lines.append(
                 f"{author_name}：{comment.content}（回复 {reply_count} 条）"

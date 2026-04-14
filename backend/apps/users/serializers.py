@@ -8,6 +8,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.travel.services import resolve_media_url
 from apps.users.models import UserProfile
+from apps.users.utils import get_user_display_name
 
 
 def build_default_avatar(label):
@@ -46,22 +47,25 @@ class UserProfileSerializer(serializers.ModelSerializer):
         )
 
     def get_avatar(self, obj):
-        return resolve_media_url(obj.avatar) or build_default_avatar(obj.nickname or obj.user.username)
+        return resolve_media_url(obj.avatar) or build_default_avatar(get_user_display_name(obj.user))
 
 
 class UserSerializer(serializers.ModelSerializer):
     profile = UserProfileSerializer(required=False)
     avatar = serializers.SerializerMethodField()
     nickname = serializers.CharField(source="profile.nickname", read_only=True)
+    display_name = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ("id", "username", "first_name", "email", "is_staff", "avatar", "nickname", "profile")
+        fields = ("id", "username", "first_name", "email", "is_staff", "avatar", "nickname", "display_name", "profile")
 
     def get_avatar(self, obj):
         avatar = getattr(getattr(obj, "profile", None), "avatar", "")
-        nickname = getattr(getattr(obj, "profile", None), "nickname", "") or obj.username
-        return resolve_media_url(avatar) or build_default_avatar(nickname)
+        return resolve_media_url(avatar) or build_default_avatar(get_user_display_name(obj))
+
+    def get_display_name(self, obj):
+        return get_user_display_name(obj)
 
 
 class CaptchaValidationMixin:
@@ -91,7 +95,7 @@ class RegisterSerializer(CaptchaValidationMixin, serializers.ModelSerializer):
     def create(self, validated_data):
         nickname = validated_data.pop("nickname", "")
         user = User.objects.create_user(**validated_data)
-        UserProfile.objects.create(user=user, nickname=nickname or user.username)
+        UserProfile.objects.create(user=user, nickname=nickname)
         return user
 
 

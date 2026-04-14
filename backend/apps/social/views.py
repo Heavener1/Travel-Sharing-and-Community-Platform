@@ -2,15 +2,15 @@ from collections import defaultdict
 from datetime import timedelta
 
 from django.contrib.auth.models import User
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from django.db.models import Q
 
-from apps.social.models import Post, PostComment, PostLike, UserAction
+from apps.social.models import Notification, Post, PostComment, PostLike, UserAction
 from apps.social.serializers import (
+    NotificationSerializer,
     PostCommentSerializer,
     PostCreateSerializer,
     PostListSerializer,
@@ -18,6 +18,7 @@ from apps.social.serializers import (
     PostUpdateSerializer,
 )
 from apps.travel.models import Destination, DestinationReview
+from apps.users.utils import get_user_display_name
 
 
 TIME_SEGMENTS = [
@@ -26,6 +27,19 @@ TIME_SEGMENTS = [
     (12, 17, "12:00-17:59"),
     (18, 23, "18:00-23:59"),
 ]
+
+
+def create_notification(*, recipient, actor, notification_type, message, post=None, comment=None):
+    if not recipient or not actor or recipient == actor:
+        return None
+    return Notification.objects.create(
+        recipient=recipient,
+        actor=actor,
+        notification_type=notification_type,
+        message=message,
+        post=post,
+        comment=comment,
+    )
 
 
 class PostListCreateView(generics.ListCreateAPIView):
@@ -58,7 +72,11 @@ class PostListCreateView(generics.ListCreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
-        post = Post.objects.select_related("author", "destination").prefetch_related("comments", "likes").get(pk=serializer.instance.pk)
+        post = (
+            Post.objects.select_related("author", "destination")
+            .prefetch_related("comments", "likes")
+            .get(pk=serializer.instance.pk)
+        )
         output = PostSerializer(post, context={"request": request}).data
         return Response(output, status=status.HTTP_201_CREATED)
 
@@ -104,7 +122,37 @@ class CommentCreateView(generics.CreateAPIView):
         post = Post.objects.get(pk=self.kwargs["post_id"])
         if post.status != "approved" and not self.request.user.is_staff and post.author != self.request.user:
             raise permissions.PermissionDenied("该帖子尚未通过审核")
-        serializer.save(author=self.request.user, post=post, status="approved")
+
+        comment = serializer.save(author=self.request.user, post=post, status="approved")
+
+        if comment.parent_id:
+            create_notification(
+                recipient=comment.parent.author,
+                actor=self.request.user,
+                notification_type="comment_reply",
+                message=f"{get_user_display_name(self.request.user)} 回复了你的评论",
+                post=post,
+                comment=comment,
+            )
+            if post.author_id != comment.parent.author_id:
+                create_notification(
+                    recipient=post.author,
+                    actor=self.request.user,
+                    notification_type="post_comment",
+                    message=f"{get_user_display_name(self.request.user)} 在你的帖子下发布了新回复",
+                    post=post,
+                    comment=comment,
+                )
+            return
+
+        create_notification(
+            recipient=post.author,
+            actor=self.request.user,
+            notification_type="post_comment",
+            message=f"{get_user_display_name(self.request.user)} 评论了你的帖子《{post.title}》",
+            post=post,
+            comment=comment,
+        )
 
 
 class LikeToggleView(APIView):
@@ -119,7 +167,33 @@ class LikeToggleView(APIView):
 
         if post.destination:
             UserAction.objects.create(user=request.user, destination=post.destination, action_type="like")
+
+        create_notification(
+            recipient=post.author,
+            actor=request.user,
+            notification_type="post_like",
+            message=f"{get_user_display_name(request.user)} 点赞了你的帖子《{post.title}》",
+            post=post,
+        )
         return Response({"liked": True}, status=status.HTTP_201_CREATED)
+
+
+class NotificationListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        queryset = Notification.objects.filter(recipient=request.user).select_related("actor", "post", "comment")[:30]
+        serializer = NotificationSerializer(queryset, many=True, context={"request": request})
+        unread_count = Notification.objects.filter(recipient=request.user, is_read=False).count()
+        return Response({"results": serializer.data, "unread_count": unread_count})
+
+
+class NotificationReadView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        Notification.objects.filter(recipient=request.user, is_read=False).update(is_read=True)
+        return Response({"unread_count": 0})
 
 
 class ModerationSummaryView(APIView):
@@ -151,10 +225,7 @@ class AdminDashboardView(APIView):
 
         timeline = []
         for date_label in sorted(bucket_map.keys()):
-            segments = [
-                {"label": label, "count": bucket_map[date_label][label]}
-                for _, _, label in TIME_SEGMENTS
-            ]
+            segments = [{"label": label, "count": bucket_map[date_label][label]} for _, _, label in TIME_SEGMENTS]
             timeline.append(
                 {
                     "date": date_label,
@@ -173,9 +244,7 @@ class AdminDashboardView(APIView):
         }
         post_trend_map = {
             item["created_at__date"]: item["count"]
-            for item in Post.objects.filter(created_at__date__gte=recent_days[0])
-            .values("created_at__date")
-            .annotate(count=Count("id"))
+            for item in Post.objects.filter(created_at__date__gte=recent_days[0]).values("created_at__date").annotate(count=Count("id"))
         }
         destination_trend_map = {
             item["created_at__date"]: item["count"]

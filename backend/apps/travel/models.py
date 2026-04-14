@@ -1,6 +1,8 @@
 from django.contrib.auth.models import User
 from django.db import models
 
+from apps.users.utils import get_user_display_name
+
 
 class Destination(models.Model):
     name = models.CharField(max_length=120)
@@ -38,7 +40,7 @@ class DestinationReview(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.user.username} - {self.destination.name} ({self.rating})"
+        return f"{get_user_display_name(self.user)} - {self.destination.name} ({self.rating})"
 
 
 class Hotel(models.Model):

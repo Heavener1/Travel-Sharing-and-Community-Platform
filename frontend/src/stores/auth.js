@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 
 import http from "../api/http";
+import { useNotificationStore } from "./notifications";
 
 export const useAuthStore = defineStore("auth", {
   state: () => ({
@@ -47,6 +48,8 @@ export const useAuthStore = defineStore("auth", {
       }
     },
     logout() {
+      const notificationStore = useNotificationStore();
+      notificationStore.reset();
       this.user = null;
       this.access = "";
       this.refresh = "";

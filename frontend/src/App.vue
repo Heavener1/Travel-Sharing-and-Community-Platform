@@ -1,12 +1,14 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
-import { useAuthStore } from "./stores/auth";
 import http from "./api/http";
+import { useAuthStore } from "./stores/auth";
+import { useNotificationStore } from "./stores/notifications";
 
 const route = useRoute();
 const authStore = useAuthStore();
+const notificationStore = useNotificationStore();
 
 const authModalOpen = ref(false);
 const authMode = ref("login");
@@ -35,17 +37,18 @@ const navItems = computed(() => {
     { label: "首页", to: "/" },
     { label: "景点探索", to: "/explore" },
     { label: "智能问答", to: "/qa" },
-    { label: "社区", to: "/community" },
-    { label: "行程规划", to: "/planner" },
+    { label: "旅行社区", to: "/community" },
+    { label: "智能行程规划", to: "/planner" },
   ];
   if (authStore.user?.is_staff) {
     items.push({ label: "管理后台", to: "/admin-panel" });
   }
-  items.push({ label: "我的", to: "/profile" });
+  items.push({ label: "个人中心", to: "/profile" });
   return items;
 });
 
 const routeTitle = computed(() => route.meta.title || "旅游分享与交流平台");
+const displayName = computed(() => authStore.user?.display_name || authStore.user?.nickname || authStore.user?.first_name || authStore.user?.email || authStore.user?.username || "游客模式");
 
 const refreshCaptcha = async () => {
   const { data } = await http.get("/auth/captcha/");
@@ -69,16 +72,18 @@ const closeAuthModal = () => {
   authError.value = "";
 };
 
+const extractErrorMessage = (error, fallback) =>
+  error?.response?.data?.non_field_errors?.[0] ||
+  error?.response?.data?.detail ||
+  fallback;
+
 const submitLogin = async () => {
   authError.value = "";
   try {
     await authStore.login(loginForm);
     closeAuthModal();
   } catch (error) {
-    authError.value =
-      error?.response?.data?.non_field_errors?.[0] ||
-      error?.response?.data?.detail ||
-      "登录失败，请检查输入信息。";
+    authError.value = extractErrorMessage(error, "登录失败，请检查输入信息。");
     await refreshCaptcha();
   }
 };
@@ -89,16 +94,60 @@ const submitRegister = async () => {
     await authStore.register(registerForm);
     closeAuthModal();
   } catch (error) {
-    authError.value =
-      error?.response?.data?.non_field_errors?.[0] ||
-      error?.response?.data?.detail ||
-      "注册失败，请检查输入信息。";
+    authError.value = extractErrorMessage(error, "注册失败，请检查输入信息。");
     await refreshCaptcha();
   }
 };
 
-onMounted(() => {
-  authStore.restore();
+const handleNotificationClick = async () => {
+  try {
+    await notificationStore.togglePanel();
+  } catch {
+    notificationStore.open = !notificationStore.open;
+  }
+};
+
+watch(
+  () => authStore.isAuthenticated,
+  async (authenticated) => {
+    if (authenticated) {
+      try {
+        await notificationStore.fetchNotifications();
+      } catch {
+        notificationStore.reset();
+        return;
+      }
+      notificationStore.startPolling();
+      return;
+    }
+    notificationStore.reset();
+  },
+  { immediate: false },
+);
+
+watch(
+  () => route.fullPath,
+  () => {
+    if (notificationStore.open) {
+      notificationStore.open = false;
+    }
+  },
+);
+
+onMounted(async () => {
+  await authStore.restore();
+  if (authStore.isAuthenticated) {
+    try {
+      await notificationStore.fetchNotifications();
+      notificationStore.startPolling();
+    } catch {
+      notificationStore.reset();
+    }
+  }
+});
+
+onBeforeUnmount(() => {
+  notificationStore.stopPolling();
 });
 </script>
 
@@ -119,7 +168,7 @@ onMounted(() => {
           <template v-if="authStore.isAuthenticated">
             <div class="profile-chip profile-chip-rich">
               <img v-if="authStore.user?.avatar" :src="authStore.user.avatar" alt="avatar" class="mini-avatar" />
-              <span>{{ authStore.user?.nickname || authStore.user?.username }}</span>
+              <span>{{ displayName }}</span>
             </div>
             <button class="btn btn-secondary" @click="authStore.logout">退出</button>
           </template>
@@ -139,19 +188,62 @@ onMounted(() => {
         </div>
         <div class="profile-chip profile-chip-rich">
           <img v-if="authStore.user?.avatar" :src="authStore.user.avatar" alt="avatar" class="mini-avatar" />
-          <span>{{ authStore.isAuthenticated ? (authStore.user?.nickname || authStore.user?.username) : "游客模式" }}</span>
+          <span>{{ displayName }}</span>
         </div>
       </section>
 
       <RouterView />
     </main>
 
+    <div v-if="authStore.isAuthenticated" class="notification-fab-wrap">
+      <button class="notification-fab" @click="handleNotificationClick">
+        <span>消息</span>
+        <span v-if="notificationStore.unreadCount" class="notification-badge">
+          {{ notificationStore.unreadCount > 99 ? "99+" : notificationStore.unreadCount }}
+        </span>
+      </button>
+
+      <div v-if="notificationStore.open" class="notification-panel">
+        <div class="split notification-panel-head">
+          <div>
+            <p class="eyebrow">消息通知</p>
+            <h3>最近互动</h3>
+          </div>
+          <button class="btn btn-secondary btn-compact" @click="notificationStore.open = false">关闭</button>
+        </div>
+
+        <div v-if="notificationStore.loading" class="card muted">正在加载消息...</div>
+        <div v-else-if="!notificationStore.items.length" class="card muted">暂时还没有收到新的互动消息。</div>
+
+        <div v-else class="form-grid">
+          <RouterLink
+            v-for="item in notificationStore.items"
+            :key="item.id"
+            :to="item.post ? `/community/${item.post}` : '/community'"
+            class="notification-item"
+          >
+            <img v-if="item.actor_avatar" :src="item.actor_avatar" alt="actor avatar" class="mini-avatar" />
+            <div class="notification-copy">
+              <strong>{{ item.message }}</strong>
+              <p class="muted">{{ item.post_title || "相关内容" }}</p>
+              <p class="muted">{{ item.created_at }}</p>
+            </div>
+            <span v-if="!item.is_read" class="notification-dot"></span>
+          </RouterLink>
+        </div>
+      </div>
+    </div>
+
     <div v-if="authModalOpen" class="modal-backdrop" @click.self="closeAuthModal">
       <div class="modal-card">
         <div class="split">
           <div class="action-row">
-            <button class="btn" :class="authMode === 'login' ? 'btn-primary' : 'btn-secondary'" @click="authMode = 'login'">登录</button>
-            <button class="btn" :class="authMode === 'register' ? 'btn-primary' : 'btn-secondary'" @click="authMode = 'register'">注册</button>
+            <button class="btn" :class="authMode === 'login' ? 'btn-primary' : 'btn-secondary'" @click="authMode = 'login'">
+              登录
+            </button>
+            <button class="btn" :class="authMode === 'register' ? 'btn-primary' : 'btn-secondary'" @click="authMode = 'register'">
+              注册
+            </button>
           </div>
           <button class="btn btn-secondary" @click="closeAuthModal">关闭</button>
         </div>

@@ -1,14 +1,14 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 
 import MarkdownContent from "../components/MarkdownContent.vue";
+import { chinaRegions } from "../data/chinaRegions";
 import http from "../api/http";
 import { streamRequest } from "../api/stream";
 import { useAuthStore } from "../stores/auth";
 
 const authStore = useAuthStore();
 const keyword = ref("");
-const onlyHiddenGem = ref(false);
 const loading = ref(false);
 const progress = ref(0);
 const statusText = ref("");
@@ -32,6 +32,19 @@ const uploadForm = reactive({
   cover: "",
   tags: "",
 });
+
+const provinceOptions = chinaRegions;
+const cityOptions = computed(() => {
+  const region = chinaRegions.find((item) => item.province === uploadForm.province);
+  return region?.cities || [];
+});
+
+watch(
+  () => uploadForm.province,
+  () => {
+    uploadForm.city = "";
+  },
+);
 
 const mergedResults = computed(() => {
   const resultMap = new Map();
@@ -77,7 +90,7 @@ const fetchSmartResults = async () => {
   };
   try {
     await streamRequest({
-      path: `/travel/smart-search/stream/?q=${encodeURIComponent(keyword.value || "")}&hidden_gem=${onlyHiddenGem.value ? "true" : "false"}`,
+      path: `/travel/smart-search/stream/?q=${encodeURIComponent(keyword.value || "")}&hidden_gem=false`,
       method: "GET",
       onEvent: (event, data) => {
         if (event === "progress") {
@@ -125,6 +138,7 @@ const uploadCover = async (event) => {
     headers: { "Content-Type": "multipart/form-data" },
   });
   uploadForm.cover = data.reference || data.url;
+  event.target.value = "";
 };
 
 const submitDestination = async () => {
@@ -147,13 +161,9 @@ onMounted(fetchSmartResults);
 
 <template>
   <section class="panel">
-    <div class="grid-3">
+    <div class="search-bar-row">
       <input v-model="keyword" class="input" placeholder="搜索城市、景点、标签、玩法" @keyup.enter="fetchSmartResults" />
-      <label class="card">
-        <input v-model="onlyHiddenGem" type="checkbox" />
-        只看小众景点
-      </label>
-      <button class="btn btn-primary" @click="fetchSmartResults">
+      <button class="btn btn-primary search-submit-btn" @click="fetchSmartResults">
         {{ loading ? "搜索中..." : "智能搜索" }}
       </button>
     </div>
@@ -186,7 +196,7 @@ onMounted(fetchSmartResults);
         <img v-if="item.cover" :src="item.cover" :alt="item.name" class="cover" />
         <h3>{{ item.name }}</h3>
         <p class="muted">{{ item.city }} · {{ item.province }}</p>
-        <p>{{ item.summary }}</p>
+        <p class="summary-two-lines">{{ item.summary }}</p>
         <div class="split">
           <span class="pill">评分 {{ item.average_rating }}</span>
           <RouterLink :to="`/explore/${item.id}`" class="btn btn-secondary">查看详情</RouterLink>
@@ -210,7 +220,7 @@ onMounted(fetchSmartResults);
             <span v-for="source in item.sourceLabels" :key="source" class="tag">{{ source }}</span>
           </div>
         </div>
-        <p>{{ item.summary }}</p>
+        <p class="summary-two-lines">{{ item.summary }}</p>
         <div class="tag-row">
           <span v-for="tag in item.tag_list" :key="tag" class="tag">{{ tag }}</span>
         </div>
@@ -230,8 +240,18 @@ onMounted(fetchSmartResults);
       </div>
       <div class="form-grid">
         <input v-model="uploadForm.name" class="input" placeholder="景点名称" />
-        <input v-model="uploadForm.province" class="input" placeholder="省份" />
-        <input v-model="uploadForm.city" class="input" placeholder="城市" />
+        <select v-model="uploadForm.province" class="select">
+          <option value="">选择省份</option>
+          <option v-for="item in provinceOptions" :key="item.province" :value="item.province">
+            {{ item.province }}
+          </option>
+        </select>
+        <select v-model="uploadForm.city" class="select" :disabled="!uploadForm.province">
+          <option value="">{{ uploadForm.province ? "选择城市" : "请先选择省份" }}</option>
+          <option v-for="city in cityOptions" :key="city" :value="city">
+            {{ city }}
+          </option>
+        </select>
         <textarea v-model="uploadForm.summary" class="textarea" placeholder="景点简介"></textarea>
         <input v-model="uploadForm.tags" class="input" placeholder="标签，可选" />
         <input v-model="uploadForm.cover" class="input" placeholder="封面图片引用，可选" />
