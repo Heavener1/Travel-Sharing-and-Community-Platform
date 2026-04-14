@@ -14,11 +14,6 @@ const destination = ref(null);
 const loading = ref(false);
 const submitLoading = ref(false);
 const reviewError = ref("");
-const aiProviders = ref({});
-const aiForm = reactive({
-  provider: "qwen",
-  model: "",
-});
 const reviewForm = reactive({
   rating: 5,
   content: "",
@@ -40,15 +35,6 @@ const fetchDestination = async () => {
     destination.value = data;
   } finally {
     loading.value = false;
-  }
-};
-
-const fetchAIProviders = async () => {
-  if (!authStore.isAuthenticated) return;
-  const { data } = await http.get("/ai/providers/");
-  aiProviders.value = data;
-  if (data[aiForm.provider] && !aiForm.model) {
-    aiForm.model = data[aiForm.provider].default_model;
   }
 };
 
@@ -78,8 +64,6 @@ const runAnalysis = async () => {
       path: "/ai/destination-analysis/stream/",
       body: {
         destination_id: destination.value.id,
-        provider: aiForm.provider,
-        model: aiForm.model || undefined,
       },
       onEvent: (event, data) => {
         if (event === "progress") {
@@ -106,9 +90,7 @@ const runAnalysis = async () => {
   }
 };
 
-onMounted(async () => {
-  await Promise.all([fetchDestination(), fetchAIProviders()]);
-});
+onMounted(fetchDestination);
 </script>
 
 <template>
@@ -145,10 +127,7 @@ onMounted(async () => {
         <div v-for="item in destination.rating_distribution" :key="item.star" class="rating-bar-row">
           <span>{{ item.star }} 星</span>
           <div class="progress-track">
-            <div
-              class="progress-bar"
-              :style="{ width: `${(item.count / maxRatingCount) * 100}%` }"
-            ></div>
+            <div class="progress-bar" :style="{ width: `${(item.count / maxRatingCount) * 100}%` }"></div>
           </div>
           <span class="muted">{{ item.count }} 条</span>
         </div>
@@ -160,18 +139,6 @@ onMounted(async () => {
           <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated || analysisLoading" @click="runAnalysis">
             {{ analysisLoading ? "分析中..." : "AI 分析当前景点" }}
           </button>
-        </div>
-        <div class="grid-3">
-          <select v-model="aiForm.provider" class="select" @change="aiForm.model = aiProviders[aiForm.provider]?.default_model || ''">
-            <option value="qwen">千问</option>
-            <option value="kimi">Kimi</option>
-          </select>
-          <select v-model="aiForm.model" class="select">
-            <option v-for="item in (aiProviders[aiForm.provider]?.models || [])" :key="item" :value="item">
-              {{ item }}
-            </option>
-          </select>
-          <input v-model="aiForm.model" class="input" placeholder="也可以手动输入模型名" />
         </div>
         <div v-if="analysisLoading || analysisText || analysisStatus" class="stream-box">
           <div class="stream-head">
@@ -230,11 +197,7 @@ onMounted(async () => {
           placeholder="可以只打分不写评价；如果填写评价内容，系统会和评分一起提交。"
         ></textarea>
         <p v-if="reviewError" class="muted">{{ reviewError }}</p>
-        <button
-          class="btn btn-primary"
-          :disabled="!authStore.isAuthenticated || submitLoading"
-          @click="submitReview"
-        >
+        <button class="btn btn-primary" :disabled="!authStore.isAuthenticated || submitLoading" @click="submitReview">
           {{ submitLoading ? "提交中..." : "提交评分与评价" }}
         </button>
         <p class="muted">每个用户对同一景点只能评价一次。</p>

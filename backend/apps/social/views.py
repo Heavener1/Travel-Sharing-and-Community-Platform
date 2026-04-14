@@ -10,7 +10,13 @@ from rest_framework.views import APIView
 from django.db.models import Q
 
 from apps.social.models import Post, PostComment, PostLike, UserAction
-from apps.social.serializers import PostCommentSerializer, PostCreateSerializer, PostSerializer, PostUpdateSerializer
+from apps.social.serializers import (
+    PostCommentSerializer,
+    PostCreateSerializer,
+    PostListSerializer,
+    PostSerializer,
+    PostUpdateSerializer,
+)
 from apps.travel.models import Destination, DestinationReview
 
 
@@ -41,7 +47,7 @@ class PostListCreateView(generics.ListCreateAPIView):
     def get_serializer_class(self):
         if self.request.method == "POST":
             return PostCreateSerializer
-        return PostSerializer
+        return PostListSerializer
 
     def perform_create(self, serializer):
         post = serializer.save(author=self.request.user, status="approved")

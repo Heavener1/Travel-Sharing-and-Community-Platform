@@ -15,11 +15,6 @@ const form = reactive({
   preferences: "海岛,摄影,慢旅行",
 });
 const result = ref(null);
-const aiProviders = ref({});
-const aiForm = reactive({
-  provider: "qwen",
-  model: "",
-});
 const aiAdvice = ref("");
 const aiLoading = ref(false);
 const aiProgress = ref(0);
@@ -37,15 +32,6 @@ const generatePlan = async () => {
   }
 };
 
-const fetchAIProviders = async () => {
-  if (!authStore.isAuthenticated) return;
-  const { data } = await http.get("/ai/providers/");
-  aiProviders.value = data;
-  if (data[aiForm.provider] && !aiForm.model) {
-    aiForm.model = data[aiForm.provider].default_model;
-  }
-};
-
 const askAI = async () => {
   aiLoading.value = true;
   aiProgress.value = 0;
@@ -57,8 +43,6 @@ const askAI = async () => {
       path: "/ai/travel-assistant/stream/",
       body: {
         ...form,
-        provider: aiForm.provider,
-        model: aiForm.model || undefined,
         draft_itinerary: draft,
       },
       onEvent: (event, data) => {
@@ -86,7 +70,7 @@ const askAI = async () => {
   }
 };
 
-onMounted(fetchAIProviders);
+onMounted(() => {});
 </script>
 
 <template>
@@ -112,7 +96,7 @@ onMounted(fetchAIProviders);
         <div class="card">
           <h3>{{ result.trip.title }}</h3>
           <p class="muted">
-            {{ result.trip.departure_city }} 出发 · 前往 {{ result.trip.destination_city }} · 预算 ￥{{ result.trip.budget }} · {{ result.trip.days }} 天
+            {{ result.trip.departure_city }} 出发 · 前往 {{ result.trip.destination_city }} · 预算 {{ result.trip.budget }} · {{ result.trip.days }} 天
           </p>
         </div>
         <div v-for="(items, day) in result.itinerary" :key="day" class="card">
@@ -129,19 +113,7 @@ onMounted(fetchAIProviders);
 
   <section class="panel">
     <p class="eyebrow">AI 行程顾问</p>
-    <div class="grid-3">
-      <select v-model="aiForm.provider" class="select" @change="aiForm.model = aiProviders[aiForm.provider]?.default_model || ''">
-        <option value="qwen">千问</option>
-        <option value="kimi">Kimi</option>
-      </select>
-      <select v-model="aiForm.model" class="select">
-        <option v-for="item in (aiProviders[aiForm.provider]?.models || [])" :key="item" :value="item">
-          {{ item }}
-        </option>
-      </select>
-      <input v-model="aiForm.model" class="input" placeholder="也可以手动输入模型名" />
-    </div>
-    <div class="action-row" style="margin-top: 14px;">
+    <div class="action-row">
       <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated || aiLoading" @click="askAI">
         {{ aiLoading ? "生成中..." : "让 AI 优化这份行程" }}
       </button>

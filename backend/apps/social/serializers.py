@@ -77,6 +77,51 @@ class PostSerializer(serializers.ModelSerializer):
         return data
 
 
+class PostListSerializer(serializers.ModelSerializer):
+    author_name = serializers.CharField(source="author.username", read_only=True)
+    author_avatar = serializers.SerializerMethodField()
+    destination_name = serializers.CharField(source="destination.name", read_only=True)
+    like_count = serializers.SerializerMethodField()
+    comment_count = serializers.SerializerMethodField()
+    cover = serializers.SerializerMethodField()
+    content_preview = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Post
+        fields = (
+            "id",
+            "author",
+            "author_name",
+            "author_avatar",
+            "destination",
+            "destination_name",
+            "title",
+            "cover",
+            "tags",
+            "status",
+            "created_at",
+            "like_count",
+            "comment_count",
+            "content_preview",
+        )
+
+    def get_like_count(self, obj):
+        return obj.likes.count()
+
+    def get_comment_count(self, obj):
+        return obj.comments.filter(status="approved").count()
+
+    def get_cover(self, obj):
+        return resolve_media_url(obj.cover)
+
+    def get_author_avatar(self, obj):
+        return resolve_media_url(getattr(getattr(obj.author, "profile", None), "avatar", ""))
+
+    def get_content_preview(self, obj):
+        text = (obj.content or "").strip()
+        return text[:120] + ("..." if len(text) > 120 else "")
+
+
 class PostCreateSerializer(serializers.ModelSerializer):
     cover = serializers.CharField(required=False, allow_blank=True)
 

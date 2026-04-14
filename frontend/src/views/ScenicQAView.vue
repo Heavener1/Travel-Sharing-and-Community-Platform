@@ -8,14 +8,9 @@ import { useAuthStore } from "../stores/auth";
 
 const authStore = useAuthStore();
 const destinations = ref([]);
-const aiProviders = ref({});
 const form = reactive({
   destination_name: "",
   question: "",
-});
-const aiForm = reactive({
-  provider: "qwen",
-  model: "",
 });
 const answerText = ref("");
 const answerProgress = ref(0);
@@ -31,15 +26,6 @@ const fetchDestinations = async () => {
   destinations.value = data.results ?? data;
 };
 
-const fetchAIProviders = async () => {
-  if (!authStore.isAuthenticated) return;
-  const { data } = await http.get("/ai/providers/");
-  aiProviders.value = data;
-  if (data[aiForm.provider] && !aiForm.model) {
-    aiForm.model = data[aiForm.provider].default_model;
-  }
-};
-
 const askQuestion = async () => {
   answerLoading.value = true;
   answerText.value = "";
@@ -53,8 +39,6 @@ const askQuestion = async () => {
       body: {
         destination_name: form.destination_name,
         question: form.question,
-        provider: aiForm.provider,
-        model: aiForm.model || undefined,
       },
       onEvent: (event, data) => {
         if (event === "destination") {
@@ -87,9 +71,7 @@ const askQuestion = async () => {
   }
 };
 
-onMounted(async () => {
-  await Promise.all([fetchDestinations(), fetchAIProviders()]);
-});
+onMounted(fetchDestinations);
 </script>
 
 <template>
@@ -109,18 +91,6 @@ onMounted(async () => {
           class="textarea"
           placeholder="例如：西湖适合玩几天？有什么推荐路线？预算大概多少？"
         ></textarea>
-        <div class="grid-3">
-          <select v-model="aiForm.provider" class="select" @change="aiForm.model = aiProviders[aiForm.provider]?.default_model || ''">
-            <option value="qwen">千问</option>
-            <option value="kimi">Kimi</option>
-          </select>
-          <select v-model="aiForm.model" class="select">
-            <option v-for="item in (aiProviders[aiForm.provider]?.models || [])" :key="item" :value="item">
-              {{ item }}
-            </option>
-          </select>
-          <input v-model="aiForm.model" class="input" placeholder="也可以手动输入模型名" />
-        </div>
         <button
           class="btn btn-primary"
           :disabled="!authStore.isAuthenticated || answerLoading || !form.destination_name || !form.question"

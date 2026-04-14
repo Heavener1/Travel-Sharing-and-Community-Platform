@@ -25,17 +25,29 @@ const editForm = reactive({
   tags: "",
 });
 const editCoverPreview = ref("");
-const aiProviders = ref({});
-const aiForm = reactive({
-  provider: "qwen",
-  model: "",
-});
 const summaryLoading = ref(false);
 const summaryProgress = ref(0);
 const summaryStatus = ref("");
 const summaryText = ref("");
+const coverLayout = ref("stack");
 
 const canEdit = computed(() => authStore.isAuthenticated && post.value?.author === authStore.user?.id);
+const isSideLayout = computed(() => coverLayout.value === "side");
+
+const detectCoverLayout = (coverUrl) => {
+  if (!coverUrl) {
+    coverLayout.value = "stack";
+    return;
+  }
+  const image = new Image();
+  image.onload = () => {
+    coverLayout.value = image.naturalWidth > image.naturalHeight ? "stack" : "side";
+  };
+  image.onerror = () => {
+    coverLayout.value = "stack";
+  };
+  image.src = coverUrl;
+};
 
 const syncEditForm = () => {
   if (!post.value) return;
@@ -53,6 +65,7 @@ const fetchPost = async () => {
     const { data } = await http.get(`/social/posts/${route.params.id}/`);
     post.value = data;
     syncEditForm();
+    detectCoverLayout(data.cover);
   } finally {
     loading.value = false;
   }
@@ -61,15 +74,6 @@ const fetchPost = async () => {
 const fetchDestinations = async () => {
   const { data } = await http.get("/travel/destinations/");
   destinations.value = data.results ?? data;
-};
-
-const fetchAIProviders = async () => {
-  if (!authStore.isAuthenticated) return;
-  const { data } = await http.get("/ai/providers/");
-  aiProviders.value = data;
-  if (data[aiForm.provider] && !aiForm.model) {
-    aiForm.model = data[aiForm.provider].default_model;
-  }
 };
 
 const uploadCover = async (event) => {
@@ -99,6 +103,7 @@ const savePost = async () => {
     post.value = data;
     editCoverPreview.value = data.cover || "";
     editForm.cover = data.cover_reference || "";
+    detectCoverLayout(data.cover);
     editModalOpen.value = false;
   } finally {
     editLoading.value = false;
@@ -129,8 +134,6 @@ const summarizePost = async () => {
       path: "/ai/post-summary/stream/",
       body: {
         post_id: Number(route.params.id),
-        provider: aiForm.provider,
-        model: aiForm.model || undefined,
       },
       onEvent: (event, data) => {
         if (event === "progress") {
@@ -158,14 +161,13 @@ const summarizePost = async () => {
 };
 
 onMounted(async () => {
-  await Promise.all([fetchPost(), fetchDestinations(), fetchAIProviders()]);
+  await Promise.all([fetchPost(), fetchDestinations()]);
 });
 </script>
 
 <template>
-  <section v-if="post" class="grid-2">
+  <section v-if="post" class="page">
     <article class="panel">
-      <img v-if="post.cover" :src="post.cover" :alt="post.title" class="cover" />
       <p class="eyebrow">帖子详情</p>
       <div class="post-author">
         <div class="comment-line">
@@ -180,11 +182,18 @@ onMounted(async () => {
       <div class="tag-row" v-if="post.tags">
         <span v-for="tag in post.tags.split(',').filter(Boolean)" :key="tag" class="tag">{{ tag.trim() }}</span>
       </div>
+
+      <div :class="['post-detail-main', { 'post-detail-main-side': isSideLayout }]" style="margin-top: 16px;">
+        <div v-if="post.cover" class="post-detail-media">
+          <img :src="post.cover" :alt="post.title" class="post-detail-cover" />
+        </div>
+        <div class="card post-detail-text">
+          <MarkdownContent :content="post.content" />
+        </div>
+      </div>
+
       <div class="action-row" style="margin-top: 16px;">
         <button v-if="canEdit" class="btn btn-secondary" @click="editModalOpen = true">编辑重新发布</button>
-      </div>
-      <div class="card" style="margin-top: 16px;">
-        <MarkdownContent :content="post.content" />
       </div>
     </article>
 
@@ -197,18 +206,6 @@ onMounted(async () => {
         <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated || summaryLoading" @click="summarizePost">
           {{ summaryLoading ? "总结中..." : "AI 一键总结" }}
         </button>
-      </div>
-      <div class="grid-3" style="margin-top: 16px;">
-        <select v-model="aiForm.provider" class="select" @change="aiForm.model = aiProviders[aiForm.provider]?.default_model || ''">
-          <option value="qwen">千问</option>
-          <option value="kimi">Kimi</option>
-        </select>
-        <select v-model="aiForm.model" class="select">
-          <option v-for="item in (aiProviders[aiForm.provider]?.models || [])" :key="item" :value="item">
-            {{ item }}
-          </option>
-        </select>
-        <input v-model="aiForm.model" class="input" placeholder="也可以手动输入模型名" />
       </div>
       <div v-if="summaryLoading || summaryText || summaryStatus" class="stream-box" style="margin-top: 16px;">
         <div class="stream-head">
@@ -224,9 +221,7 @@ onMounted(async () => {
         </div>
       </div>
     </article>
-  </section>
 
-  <section class="grid-2">
     <article class="panel">
       <p class="eyebrow">全部评论</p>
       <div class="form-grid">
