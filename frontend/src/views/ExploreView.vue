@@ -4,11 +4,12 @@ import { RouterLink } from "vue-router";
 
 import MarkdownContent from "../components/MarkdownContent.vue";
 import http from "../api/http";
+import { fetchFavoriteDestinationIds, toggleDestinationFavorite } from "../api/favorites";
 import { streamRequest } from "../api/stream";
 import { chinaRegions } from "../data/chinaRegions";
 import { useAuthStore } from "../stores/auth";
 import { useUiStore } from "../stores/ui";
-import { getFavoriteIds, shareContent, toggleFavoriteId } from "../utils/collection";
+import { shareContent } from "../utils/collection";
 
 const authStore = useAuthStore();
 const uiStore = useUiStore();
@@ -49,8 +50,6 @@ const uploadForm = reactive({
 
 const provinceOptions = chinaRegions;
 const skeletonCards = Array.from({ length: 4 }, (_, index) => ({ id: index }));
-const favoriteStorageKey = "travel_favorite_destinations";
-
 const cityOptions = computed(() => chinaRegions.find((item) => item.province === uploadForm.province)?.cities || []);
 
 watch(
@@ -62,11 +61,9 @@ watch(
 
 const mergedResults = computed(() => {
   const resultMap = new Map();
-
   for (const item of searchData.value.es_results) {
     resultMap.set(item.id, { ...item, sourceLabels: ["ES"] });
   }
-
   for (const item of searchData.value.db_results) {
     const existing = resultMap.get(item.id);
     if (existing) {
@@ -75,53 +72,41 @@ const mergedResults = computed(() => {
       resultMap.set(item.id, { ...item, sourceLabels: ["MySQL"] });
     }
   }
-
   let items = Array.from(resultMap.values());
-
   if (searchFilter.source !== "all") {
     items = items.filter((item) => item.sourceLabels.includes(searchFilter.source));
   }
-
   if (searchFilter.province !== "all") {
     items = items.filter((item) => item.province === searchFilter.province);
   }
-
   const sorted = [...items];
-  if (searchFilter.sort === "score_desc") {
-    sorted.sort((a, b) => Number(b.average_rating || b.score || 0) - Number(a.average_rating || a.score || 0));
-  }
-  if (searchFilter.sort === "score_asc") {
-    sorted.sort((a, b) => Number(a.average_rating || a.score || 0) - Number(b.average_rating || b.score || 0));
-  }
-  if (searchFilter.sort === "name_asc") {
-    sorted.sort((a, b) => String(a.name).localeCompare(String(b.name), "zh-CN"));
-  }
-  if (searchFilter.sort === "latest") {
-    sorted.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-  }
+  if (searchFilter.sort === "score_desc") sorted.sort((a, b) => Number(b.average_rating || b.score || 0) - Number(a.average_rating || a.score || 0));
+  if (searchFilter.sort === "score_asc") sorted.sort((a, b) => Number(a.average_rating || a.score || 0) - Number(b.average_rating || b.score || 0));
+  if (searchFilter.sort === "name_asc") sorted.sort((a, b) => String(a.name).localeCompare(String(b.name), "zh-CN"));
+  if (searchFilter.sort === "latest") sorted.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
   return sorted;
 });
 
 const featuredResults = computed(() => {
   const items = [...searchData.value.featured_results];
   const filtered = items.filter((item) => searchFilter.province === "all" || item.province === searchFilter.province);
-  if (searchFilter.sort === "score_asc") {
-    filtered.sort((a, b) => Number(a.average_rating || a.score || 0) - Number(b.average_rating || b.score || 0));
-  } else if (searchFilter.sort === "latest") {
-    filtered.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-  } else if (searchFilter.sort === "name_asc") {
-    filtered.sort((a, b) => String(a.name).localeCompare(String(b.name), "zh-CN"));
-  } else {
-    filtered.sort((a, b) => Number(b.average_rating || b.score || 0) - Number(a.average_rating || a.score || 0));
-  }
+  if (searchFilter.sort === "score_asc") filtered.sort((a, b) => Number(a.average_rating || a.score || 0) - Number(b.average_rating || b.score || 0));
+  else if (searchFilter.sort === "latest") filtered.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  else if (searchFilter.sort === "name_asc") filtered.sort((a, b) => String(a.name).localeCompare(String(b.name), "zh-CN"));
+  else filtered.sort((a, b) => Number(b.average_rating || b.score || 0) - Number(a.average_rating || a.score || 0));
   return filtered;
 });
 
 const isFavoriteDestination = (id) => favoriteDestinationIds.value.includes(id);
 
-const toggleFavoriteDestination = (item) => {
-  favoriteDestinationIds.value = toggleFavoriteId(favoriteStorageKey, item.id);
-  uiStore.pushToast(isFavoriteDestination(item.id) ? `已收藏 ${item.name}` : `已取消收藏 ${item.name}`, "success");
+const syncFavoriteIds = async () => {
+  favoriteDestinationIds.value = await fetchFavoriteDestinationIds(authStore.isAuthenticated);
+};
+
+const toggleFavorite = async (item) => {
+  const { favorited, ids } = await toggleDestinationFavorite(item.id, authStore.isAuthenticated);
+  favoriteDestinationIds.value = ids;
+  uiStore.pushToast(favorited ? `已收藏 ${item.name}` : `已取消收藏 ${item.name}`, "success");
 };
 
 const shareDestination = async (item) => {
@@ -149,15 +134,7 @@ const fetchSmartResults = async () => {
   loading.value = true;
   progress.value = 0;
   statusText.value = "准备搜索...";
-  searchData.value = {
-    keyword: keyword.value,
-    es_results: [],
-    db_results: [],
-    ai_summary: "",
-    ai_error: "",
-    featured_results: [],
-  };
-
+  searchData.value = { keyword: keyword.value, es_results: [], db_results: [], ai_summary: "", ai_error: "", featured_results: [] };
   try {
     await streamRequest({
       path: `/travel/smart-search/stream/?q=${encodeURIComponent(keyword.value || "")}&hidden_gem=false`,
@@ -167,21 +144,11 @@ const fetchSmartResults = async () => {
           progress.value = data.progress || 0;
           statusText.value = data.message || "";
         }
-        if (event === "featured_results") {
-          searchData.value.featured_results = data.items || [];
-        }
-        if (event === "es_results") {
-          searchData.value.es_results = data.items || [];
-        }
-        if (event === "db_results") {
-          searchData.value.db_results = data.items || [];
-        }
-        if (event === "ai_content") {
-          searchData.value.ai_summary = data.content || "";
-        }
-        if (event === "error") {
-          searchData.value.ai_error = data.detail || "";
-        }
+        if (event === "featured_results") searchData.value.featured_results = data.items || [];
+        if (event === "es_results") searchData.value.es_results = data.items || [];
+        if (event === "db_results") searchData.value.db_results = data.items || [];
+        if (event === "ai_content") searchData.value.ai_summary = data.content || "";
+        if (event === "error") searchData.value.ai_error = data.detail || "";
         if (event === "done") {
           progress.value = 100;
           statusText.value = searchData.value.keyword ? "搜索完成" : "已加载热门景点";
@@ -202,9 +169,7 @@ const uploadCover = async (event) => {
   if (!file) return;
   const payload = new FormData();
   payload.append("file", file);
-  const { data } = await http.post("/travel/upload/", payload, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
+  const { data } = await http.post("/travel/upload/", payload, { headers: { "Content-Type": "multipart/form-data" } });
   uploadForm.cover = data.reference || data.url;
   event.target.value = "";
 };
@@ -224,9 +189,12 @@ const submitDestination = async () => {
   }
 };
 
+watch(() => authStore.isAuthenticated, () => {
+  syncFavoriteIds();
+});
+
 onMounted(async () => {
-  favoriteDestinationIds.value = getFavoriteIds(favoriteStorageKey);
-  await fetchSmartResults();
+  await Promise.all([syncFavoriteIds(), fetchSmartResults()]);
 });
 </script>
 
@@ -314,9 +282,7 @@ onMounted(async () => {
         <div class="split">
           <span class="pill">评分 {{ item.average_rating }}</span>
           <div class="action-row">
-            <button class="btn btn-secondary" @click="toggleFavoriteDestination(item)">
-              {{ isFavoriteDestination(item.id) ? "取消收藏" : "收藏" }}
-            </button>
+            <button class="btn btn-secondary" @click="toggleFavorite(item)">{{ isFavoriteDestination(item.id) ? "取消收藏" : "收藏" }}</button>
             <button class="btn btn-secondary" @click="shareDestination(item)">分享</button>
             <RouterLink :to="`/explore/${item.id}`" class="btn btn-secondary">查看详情</RouterLink>
           </div>
@@ -373,9 +339,7 @@ onMounted(async () => {
         <div class="split">
           <span class="pill">评分 {{ item.average_rating }}</span>
           <div class="action-row">
-            <button class="btn btn-secondary" @click="toggleFavoriteDestination(item)">
-              {{ isFavoriteDestination(item.id) ? "取消收藏" : "收藏" }}
-            </button>
+            <button class="btn btn-secondary" @click="toggleFavorite(item)">{{ isFavoriteDestination(item.id) ? "取消收藏" : "收藏" }}</button>
             <button class="btn btn-secondary" @click="shareDestination(item)">分享</button>
             <RouterLink :to="`/explore/${item.id}`" class="btn btn-secondary">查看详情</RouterLink>
           </div>

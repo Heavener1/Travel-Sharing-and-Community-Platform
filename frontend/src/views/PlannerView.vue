@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
 
 import MarkdownContent from "../components/MarkdownContent.vue";
 import http from "../api/http";
@@ -21,6 +21,8 @@ const aiLoading = ref(false);
 const aiProgress = ref(0);
 const aiStatus = ref("");
 const plannerError = ref("");
+
+const itineraryDays = computed(() => Object.entries(result.value?.itinerary || {}));
 
 const generatePlan = async () => {
   plannerError.value = "";
@@ -96,7 +98,7 @@ const askAI = async () => {
             {{ result.trip.days }} 天
           </p>
         </div>
-        <div v-for="(items, day) in result.itinerary" :key="day" class="card">
+        <div v-for="[day, items] in itineraryDays" :key="day" class="card">
           <h3>第 {{ day }} 天</h3>
           <div v-for="item in items" :key="item.destination_id">
             <p><strong>{{ item.destination_name }}</strong> · {{ item.city }}</p>
@@ -109,8 +111,11 @@ const askAI = async () => {
   </section>
 
   <section class="panel">
-    <p class="eyebrow">AI 行程顾问</p>
-    <div class="action-row">
+    <div class="split">
+      <div>
+        <p class="eyebrow">AI 行程顾问</p>
+        <h3>在基础行程上继续补足节奏、预算和玩法建议</h3>
+      </div>
       <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated || aiLoading" @click="askAI">
         {{ aiLoading ? "生成中..." : "让 AI 优化这份行程" }}
       </button>
@@ -124,7 +129,7 @@ const askAI = async () => {
         <div class="progress-bar" :style="{ width: `${aiProgress}%` }"></div>
       </div>
       <p class="muted">{{ aiStatus }}</p>
-      <div v-if="aiAdvice" class="card">
+      <div v-if="aiAdvice" class="card markdown-wrap">
         <MarkdownContent :content="aiAdvice" />
       </div>
     </div>

@@ -43,6 +43,18 @@ class DestinationReview(models.Model):
         return f"{get_user_display_name(self.user)} - {self.destination.name} ({self.rating})"
 
 
+class FavoriteDestination(models.Model):
+    destination = models.ForeignKey(Destination, on_delete=models.CASCADE, related_name="favorites")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="favorite_destinations")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        constraints = [
+            models.UniqueConstraint(fields=("destination", "user"), name="unique_favorite_destination_per_user"),
+        ]
+
+
 class Hotel(models.Model):
     destination = models.ForeignKey(Destination, on_delete=models.CASCADE, related_name="hotels")
     name = models.CharField(max_length=120)

@@ -3,7 +3,10 @@ from django.urls import path
 from apps.travel.views import (
     DestinationDetailView,
     DestinationListView,
+    DestinationRelatedView,
     DestinationReviewCreateView,
+    FavoriteDestinationListView,
+    FavoriteDestinationToggleView,
     HotelListView,
     RecommendationView,
     SmartSearchView,
@@ -15,9 +18,12 @@ from apps.travel.views import (
 urlpatterns = [
     path("dashboard/", TravelDashboardView.as_view(), name="travel-dashboard"),
     path("destinations/", DestinationListView.as_view(), name="destination-list"),
+    path("favorites/destinations/", FavoriteDestinationListView.as_view(), name="favorite-destination-list"),
     path("smart-search/", SmartSearchView.as_view(), name="smart-search"),
     path("smart-search/stream/", SmartSearchStreamView.as_view(), name="smart-search-stream"),
     path("destinations/<int:pk>/", DestinationDetailView.as_view(), name="destination-detail"),
+    path("destinations/<int:pk>/related/", DestinationRelatedView.as_view(), name="destination-related"),
+    path("destinations/<int:pk>/favorite/", FavoriteDestinationToggleView.as_view(), name="favorite-destination-toggle"),
     path("destinations/<int:pk>/reviews/", DestinationReviewCreateView.as_view(), name="destination-review-create"),
     path("hotels/", HotelListView.as_view(), name="hotel-list"),
     path("recommendations/", RecommendationView.as_view(), name="recommendation-list"),

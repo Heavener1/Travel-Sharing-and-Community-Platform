@@ -1,15 +1,17 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 
 import http from "../api/http";
+import { fetchFavoriteDestinationIds, toggleDestinationFavorite } from "../api/favorites";
+import { useAuthStore } from "../stores/auth";
 import { useUiStore } from "../stores/ui";
-import { getFavoriteIds, shareContent, toggleFavoriteId } from "../utils/collection";
+import { shareContent } from "../utils/collection";
 
+const authStore = useAuthStore();
 const uiStore = useUiStore();
-const favoriteDestinationIds = ref([]);
-const favoriteStorageKey = "travel_favorite_destinations";
 
+const favoriteDestinationIds = ref([]);
 const dashboard = ref({
   destination_count: 0,
   hidden_gem_count: 0,
@@ -22,12 +24,16 @@ const loadError = ref("");
 const skeletonCards = Array.from({ length: 3 }, (_, index) => ({ id: index }));
 
 const recommendationCards = computed(() => recommendations.value || []);
-
 const isFavoriteDestination = (id) => favoriteDestinationIds.value.includes(id);
 
-const toggleFavoriteDestination = (item) => {
-  favoriteDestinationIds.value = toggleFavoriteId(favoriteStorageKey, item.id);
-  uiStore.pushToast(isFavoriteDestination(item.id) ? `已收藏 ${item.name}` : `已取消收藏 ${item.name}`, "success");
+const syncFavoriteIds = async () => {
+  favoriteDestinationIds.value = await fetchFavoriteDestinationIds(authStore.isAuthenticated);
+};
+
+const toggleFavorite = async (item) => {
+  const { favorited, ids } = await toggleDestinationFavorite(item.id, authStore.isAuthenticated);
+  favoriteDestinationIds.value = ids;
+  uiStore.pushToast(favorited ? `已收藏 ${item.name}` : `已取消收藏 ${item.name}`, "success");
 };
 
 const shareDestination = async (item) => {
@@ -40,8 +46,7 @@ const shareDestination = async (item) => {
   });
 };
 
-onMounted(async () => {
-  favoriteDestinationIds.value = getFavoriteIds(favoriteStorageKey);
+const fetchHomeData = async () => {
   loading.value = true;
   loadError.value = "";
   const [dashboardResult, recommendationResult] = await Promise.allSettled([http.get("/travel/dashboard/"), http.get("/travel/recommendations/")]);
@@ -49,16 +54,24 @@ onMounted(async () => {
   if (dashboardResult.status === "fulfilled") {
     dashboard.value = dashboardResult.value.data;
   }
-
   if (recommendationResult.status === "fulfilled") {
     recommendations.value = recommendationResult.value.data;
   }
-
   if (dashboardResult.status === "rejected" && recommendationResult.status === "rejected") {
     loadError.value = "首页数据加载较慢，稍后刷新后会恢复展示。";
   }
-
   loading.value = false;
+};
+
+watch(
+  () => authStore.isAuthenticated,
+  () => {
+    syncFavoriteIds();
+  },
+);
+
+onMounted(async () => {
+  await Promise.all([syncFavoriteIds(), fetchHomeData()]);
 });
 </script>
 
@@ -132,7 +145,7 @@ onMounted(async () => {
           </div>
           <div class="action-row card-action-row">
             <RouterLink :to="`/explore/${item.id}`" class="btn btn-secondary">查看详情</RouterLink>
-            <button class="btn btn-secondary" @click="toggleFavoriteDestination(item)">
+            <button class="btn btn-secondary" @click="toggleFavorite(item)">
               {{ isFavoriteDestination(item.id) ? "取消收藏" : "收藏" }}
             </button>
             <button class="btn btn-secondary" @click="shareDestination(item)">分享</button>
@@ -145,7 +158,7 @@ onMounted(async () => {
       <div class="split">
         <div>
           <p class="eyebrow">推荐灵感</p>
-          <h3>基于平台内容生成的出游方向</h3>
+          <h3>基于用户行为和平台内容生成的出游方向</h3>
         </div>
         <span class="pill">{{ loading ? "加载中" : `${recommendationCards.length} 条` }}</span>
       </div>
@@ -168,7 +181,7 @@ onMounted(async () => {
           </div>
           <div class="action-row card-action-row">
             <RouterLink :to="`/explore/${item.id}`" class="btn btn-secondary">查看详情</RouterLink>
-            <button class="btn btn-secondary" @click="toggleFavoriteDestination(item)">
+            <button class="btn btn-secondary" @click="toggleFavorite(item)">
               {{ isFavoriteDestination(item.id) ? "取消收藏" : "收藏" }}
             </button>
             <button class="btn btn-secondary" @click="shareDestination(item)">分享</button>
