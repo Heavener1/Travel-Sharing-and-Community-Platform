@@ -29,6 +29,7 @@ class PostSerializer(serializers.ModelSerializer):
     like_count = serializers.SerializerMethodField()
     comment_count = serializers.SerializerMethodField()
     cover = serializers.SerializerMethodField()
+    cover_reference = serializers.CharField(source="cover", read_only=True)
     comments = PostCommentSerializer(many=True, read_only=True)
 
     class Meta:
@@ -43,6 +44,7 @@ class PostSerializer(serializers.ModelSerializer):
             "title",
             "content",
             "cover",
+            "cover_reference",
             "tags",
             "status",
             "review_note",
@@ -75,9 +77,31 @@ class PostSerializer(serializers.ModelSerializer):
         return data
 
 
+class PostCreateSerializer(serializers.ModelSerializer):
+    cover = serializers.CharField(required=False, allow_blank=True)
+
+    class Meta:
+        model = Post
+        fields = ("destination", "title", "content", "cover", "tags")
+
+    def validate_cover(self, value):
+        if not value:
+            return ""
+        if value.startswith("minio://"):
+            return value
+        raise serializers.ValidationError("帖子封面请先上传，再保存帖子。")
+
+
 class PostUpdateSerializer(serializers.ModelSerializer):
     cover = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = Post
         fields = ("destination", "title", "content", "cover", "tags")
+
+    def validate_cover(self, value):
+        if not value:
+            return ""
+        if value.startswith("minio://"):
+            return value
+        raise serializers.ValidationError("帖子封面请先上传，再重新发布。")

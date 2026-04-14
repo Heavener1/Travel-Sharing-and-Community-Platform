@@ -18,6 +18,7 @@ const form = reactive({
   destination: "",
   tags: "",
 });
+const coverPreview = ref("");
 const aiForm = reactive({
   provider: "qwen",
   model: "",
@@ -59,6 +60,7 @@ const resetPostForm = () => {
   form.cover = "";
   form.destination = "";
   form.tags = "";
+  coverPreview.value = "";
   aiPolishText.value = "";
   aiPolishProgress.value = 0;
   aiPolishStatus.value = "";
@@ -80,6 +82,8 @@ const uploadCover = async (event) => {
     headers: { "Content-Type": "multipart/form-data" },
   });
   form.cover = data.reference || data.url;
+  coverPreview.value = data.url || data.reference || "";
+  event.target.value = "";
 };
 
 const polishPost = async () => {
@@ -215,6 +219,7 @@ onMounted(async () => {
           <option value="">关联景点</option>
           <option v-for="item in destinations" :key="item.id" :value="item.id">{{ item.name }}</option>
         </select>
+        <img v-if="coverPreview" :src="coverPreview" alt="封面预览" class="cover" />
         <input v-model="form.cover" class="input" placeholder="封面图片引用" />
         <input class="input" type="file" accept="image/*" @change="uploadCover" />
         <input v-model="form.tags" class="input" placeholder="标签，例如：海边,自驾,日落" />
