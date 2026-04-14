@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import timedelta
 
 from django.contrib.auth.models import User
@@ -8,8 +8,9 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.social.models import Notification, Post, PostComment, PostLike, UserAction
+from apps.social.models import FavoritePost, Notification, Post, PostComment, PostLike, UserAction
 from apps.social.serializers import (
+    FavoritePostSerializer,
     NotificationSerializer,
     PostCommentSerializer,
     PostCreateSerializer,
@@ -18,6 +19,7 @@ from apps.social.serializers import (
     PostUpdateSerializer,
 )
 from apps.travel.models import Destination, DestinationReview
+from apps.travel.serializers import DestinationSerializer
 from apps.users.utils import get_user_display_name
 
 
@@ -27,6 +29,60 @@ TIME_SEGMENTS = [
     (12, 17, "12:00-17:59"),
     (18, 23, "18:00-23:59"),
 ]
+
+
+def extract_tags(raw_text):
+    return [tag.strip() for tag in (raw_text or "").split(",") if tag.strip()]
+
+
+def build_user_preference_profile(user):
+    profile = {
+        "tag_counter": Counter(),
+        "city_counter": Counter(),
+        "province_counter": Counter(),
+        "destination_counter": Counter(),
+    }
+    if not user.is_authenticated:
+        return profile
+
+    action_weights = {
+        "view": 1,
+        "like": 3,
+        "plan": 4,
+        "review": 5,
+        "favorite": 6,
+        "post": 4,
+    }
+
+    actions = UserAction.objects.filter(user=user).select_related("destination")
+    favorites = FavoritePost.objects.filter(user=user).select_related("post__destination")
+    liked_posts = PostLike.objects.filter(user=user).select_related("post__destination")
+    reviews = DestinationReview.objects.filter(user=user).select_related("destination")
+
+    def absorb_destination(destination, weight):
+        if not destination:
+            return
+        profile["destination_counter"][destination.id] += weight
+        if destination.city:
+            profile["city_counter"][destination.city] += weight
+        if destination.province:
+            profile["province_counter"][destination.province] += weight
+        for tag in extract_tags(destination.tags):
+            profile["tag_counter"][tag] += weight
+
+    for action in actions:
+        absorb_destination(action.destination, action_weights.get(action.action_type, 1))
+
+    for favorite in favorites:
+        absorb_destination(favorite.post.destination, 5)
+
+    for like in liked_posts:
+        absorb_destination(like.post.destination, 3)
+
+    for review in reviews:
+        absorb_destination(review.destination, 6 + int(review.rating))
+
+    return profile
 
 
 def create_notification(*, recipient, actor, notification_type, message, post=None, comment=None):
@@ -42,11 +98,16 @@ def create_notification(*, recipient, actor, notification_type, message, post=No
     )
 
 
+def track_destination_action(user, destination, action_type):
+    if user.is_authenticated and destination:
+        UserAction.objects.create(user=user, destination=destination, action_type=action_type)
+
+
 class PostListCreateView(generics.ListCreateAPIView):
     serializer_class = PostSerializer
 
     def get_queryset(self):
-        queryset = Post.objects.select_related("author", "destination").prefetch_related("comments", "likes")
+        queryset = Post.objects.select_related("author", "destination").prefetch_related("comments", "likes", "favorites")
         if self.request.user.is_staff:
             return queryset
         if self.request.user.is_authenticated:
@@ -65,8 +126,7 @@ class PostListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         post = serializer.save(author=self.request.user, status="approved")
-        if post.destination:
-            UserAction.objects.create(user=self.request.user, destination=post.destination, action_type="view")
+        track_destination_action(self.request.user, post.destination, "post")
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -74,7 +134,7 @@ class PostListCreateView(generics.ListCreateAPIView):
         self.perform_create(serializer)
         post = (
             Post.objects.select_related("author", "destination")
-            .prefetch_related("comments", "likes")
+            .prefetch_related("comments", "likes", "favorites")
             .get(pk=serializer.instance.pk)
         )
         output = PostSerializer(post, context={"request": request}).data
@@ -85,7 +145,10 @@ class PostDetailView(generics.RetrieveUpdateAPIView):
     serializer_class = PostSerializer
 
     def get_queryset(self):
-        queryset = Post.objects.select_related("author", "destination").prefetch_related("comments__author", "likes")
+        queryset = (
+            Post.objects.select_related("author", "destination")
+            .prefetch_related("comments__author", "likes", "favorites")
+        )
         if self.request.user.is_staff:
             return queryset
         if self.request.user.is_authenticated:
@@ -101,6 +164,12 @@ class PostDetailView(generics.RetrieveUpdateAPIView):
         if self.request.method in ("PUT", "PATCH"):
             return PostUpdateSerializer
         return PostSerializer
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        track_destination_action(request.user, instance.destination, "view")
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
 
     def update(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -124,6 +193,7 @@ class CommentCreateView(generics.CreateAPIView):
             raise permissions.PermissionDenied("该帖子尚未通过审核")
 
         comment = serializer.save(author=self.request.user, post=post, status="approved")
+        track_destination_action(self.request.user, post.destination, "view")
 
         if comment.parent_id:
             create_notification(
@@ -165,9 +235,7 @@ class LikeToggleView(APIView):
             like.delete()
             return Response({"liked": False}, status=status.HTTP_200_OK)
 
-        if post.destination:
-            UserAction.objects.create(user=request.user, destination=post.destination, action_type="like")
-
+        track_destination_action(request.user, post.destination, "like")
         create_notification(
             recipient=post.author,
             actor=request.user,
@@ -176,6 +244,93 @@ class LikeToggleView(APIView):
             post=post,
         )
         return Response({"liked": True}, status=status.HTTP_201_CREATED)
+
+
+class FavoritePostListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        queryset = FavoritePost.objects.filter(user=request.user).select_related("post__author", "post__destination")
+        serializer = FavoritePostSerializer(queryset, many=True, context={"request": request})
+        return Response({"results": serializer.data})
+
+
+class FavoritePostToggleView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, post_id):
+        post = generics.get_object_or_404(Post, pk=post_id)
+        favorite, created = FavoritePost.objects.get_or_create(post=post, user=request.user)
+        if created:
+            track_destination_action(request.user, post.destination, "favorite")
+            return Response({"favorited": True}, status=status.HTTP_201_CREATED)
+        favorite.delete()
+        return Response({"favorited": False}, status=status.HTTP_200_OK)
+
+
+class PostRelatedView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, post_id):
+        current_post = generics.get_object_or_404(
+            Post.objects.select_related("destination", "author"),
+            pk=post_id,
+        )
+        post_tags = set(extract_tags(current_post.tags))
+        title_chars = {char for char in (current_post.title or "") if char.strip()}
+        profile = build_user_preference_profile(request.user)
+
+        candidate_posts = (
+            Post.objects.filter(status="approved")
+            .exclude(pk=current_post.pk)
+            .select_related("author", "destination")
+            .prefetch_related("comments", "likes", "favorites")
+        )
+        scored_posts = []
+        for item in candidate_posts:
+            item_tags = set(extract_tags(item.tags))
+            shared_tags = len(post_tags & item_tags)
+            same_destination = 4 if current_post.destination_id and item.destination_id == current_post.destination_id else 0
+            title_overlap = len(title_chars & {char for char in (item.title or "") if char.strip()}) * 0.08
+            affinity = 0
+            if item.destination:
+                affinity += profile["destination_counter"].get(item.destination_id, 0) * 0.5
+                affinity += profile["city_counter"].get(item.destination.city, 0) * 0.3
+                affinity += profile["province_counter"].get(item.destination.province, 0) * 0.2
+                affinity += sum(profile["tag_counter"].get(tag, 0) for tag in item_tags) * 0.18
+            score = shared_tags * 2 + same_destination + title_overlap + item.likes.count() * 0.08 + item.comments.filter(status="approved").count() * 0.1 + affinity
+            if score > 0:
+                scored_posts.append((score, item))
+        scored_posts.sort(key=lambda pair: pair[0], reverse=True)
+        related_posts = [item for _, item in scored_posts[:12]]
+
+        candidate_destinations = Destination.objects.prefetch_related("hotels", "reviews", "reviews__user__profile", "favorites").exclude(
+            pk=current_post.destination_id
+        )
+        scored_destinations = []
+        for item in candidate_destinations:
+            item_tags = set(extract_tags(item.tags))
+            shared_tags = len(post_tags & item_tags)
+            current_destination_name = getattr(current_post.destination, "name", "")
+            destination_boost = 3 if current_destination_name and item.name == current_destination_name else 0
+            affinity = (
+                profile["destination_counter"].get(item.id, 0) * 0.6
+                + profile["city_counter"].get(item.city, 0) * 0.4
+                + profile["province_counter"].get(item.province, 0) * 0.25
+                + sum(profile["tag_counter"].get(tag, 0) for tag in item_tags) * 0.2
+            )
+            score = shared_tags * 1.8 + destination_boost + float(item.score) * 0.2 + affinity
+            if score > 0:
+                scored_destinations.append((score, item))
+        scored_destinations.sort(key=lambda pair: pair[0], reverse=True)
+        related_destinations = [item for _, item in scored_destinations[:9]]
+
+        return Response(
+            {
+                "related_posts": PostListSerializer(related_posts, many=True, context={"request": request}).data,
+                "related_destinations": DestinationSerializer(related_destinations, many=True, context={"request": request}).data,
+            }
+        )
 
 
 class NotificationListView(APIView):
@@ -238,9 +393,7 @@ class AdminDashboardView(APIView):
         recent_days = [today - timedelta(days=offset) for offset in range(6, -1, -1)]
         user_trend_map = {
             item["date_joined__date"]: item["count"]
-            for item in User.objects.filter(date_joined__date__gte=recent_days[0])
-            .values("date_joined__date")
-            .annotate(count=Count("id"))
+            for item in User.objects.filter(date_joined__date__gte=recent_days[0]).values("date_joined__date").annotate(count=Count("id"))
         }
         post_trend_map = {
             item["created_at__date"]: item["count"]
@@ -248,9 +401,7 @@ class AdminDashboardView(APIView):
         }
         destination_trend_map = {
             item["created_at__date"]: item["count"]
-            for item in Destination.objects.filter(created_at__date__gte=recent_days[0])
-            .values("created_at__date")
-            .annotate(count=Count("id"))
+            for item in Destination.objects.filter(created_at__date__gte=recent_days[0]).values("created_at__date").annotate(count=Count("id"))
         }
 
         recent_trends = [

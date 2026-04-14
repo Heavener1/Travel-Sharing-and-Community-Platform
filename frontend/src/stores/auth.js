@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 
+import { syncLocalFavoritesToCloud } from "../api/favorites";
 import http from "../api/http";
 import { useNotificationStore } from "./notifications";
 
@@ -13,6 +14,13 @@ export const useAuthStore = defineStore("auth", {
     isAuthenticated: (state) => Boolean(state.access && state.user),
   },
   actions: {
+    async syncFavoritesAfterAuth() {
+      try {
+        await syncLocalFavoritesToCloud();
+      } catch {
+        // Keep authentication successful even if favorite sync is temporarily unavailable.
+      }
+    },
     async login(payload) {
       const { data } = await http.post("/auth/login/", payload);
       this.access = data.access;
@@ -20,6 +28,7 @@ export const useAuthStore = defineStore("auth", {
       localStorage.setItem("travel_access_token", data.access);
       localStorage.setItem("travel_refresh_token", data.refresh);
       await this.fetchMe();
+      await this.syncFavoritesAfterAuth();
     },
     async register(payload) {
       const { data } = await http.post("/auth/register/", payload);
@@ -28,6 +37,7 @@ export const useAuthStore = defineStore("auth", {
       this.user = data.user;
       localStorage.setItem("travel_access_token", data.access);
       localStorage.setItem("travel_refresh_token", data.refresh);
+      await this.syncFavoritesAfterAuth();
     },
     async fetchMe() {
       if (!this.access) return;
@@ -42,6 +52,7 @@ export const useAuthStore = defineStore("auth", {
       if (this.access && !this.user) {
         try {
           await this.fetchMe();
+          await this.syncFavoritesAfterAuth();
         } catch {
           this.logout();
         }

@@ -3,7 +3,7 @@ from urllib.parse import quote
 from django.db.models import Avg
 from rest_framework import serializers
 
-from apps.travel.models import Destination, DestinationReview, Hotel
+from apps.travel.models import Destination, DestinationReview, FavoriteDestination, Hotel
 from apps.travel.services import resolve_media_url
 from apps.users.serializers import build_default_avatar
 from apps.users.utils import get_user_display_name
@@ -69,13 +69,36 @@ class DestinationReviewSerializer(serializers.ModelSerializer):
         return get_user_display_name(obj.user)
 
 
-class DestinationSerializer(serializers.ModelSerializer):
+class BaseDestinationSerializer(serializers.ModelSerializer):
     hotels = HotelSerializer(many=True, read_only=True)
     tag_list = serializers.SerializerMethodField()
     cover = serializers.SerializerMethodField()
     review_count = serializers.SerializerMethodField()
     average_rating = serializers.SerializerMethodField()
+    current_user_favorited = serializers.SerializerMethodField()
 
+    def get_tag_list(self, obj):
+        return [tag.strip() for tag in obj.tags.split(",") if tag.strip()]
+
+    def get_cover(self, obj):
+        return resolve_media_url(obj.cover) or build_default_destination_cover(obj.name)
+
+    def get_review_count(self, obj):
+        return obj.reviews.count() if hasattr(obj, "reviews") else 0
+
+    def get_average_rating(self, obj):
+        average = obj.reviews.aggregate(avg=Avg("rating")).get("avg") if hasattr(obj, "reviews") else None
+        return round(float(average), 1) if average is not None else float(obj.score)
+
+    def get_current_user_favorited(self, obj):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated:
+            return False
+        return obj.favorites.filter(user=user).exists()
+
+
+class DestinationSerializer(BaseDestinationSerializer):
     class Meta:
         model = Destination
         fields = (
@@ -97,20 +120,8 @@ class DestinationSerializer(serializers.ModelSerializer):
             "hotels",
             "review_count",
             "average_rating",
+            "current_user_favorited",
         )
-
-    def get_tag_list(self, obj):
-        return [tag.strip() for tag in obj.tags.split(",") if tag.strip()]
-
-    def get_cover(self, obj):
-        return resolve_media_url(obj.cover) or build_default_destination_cover(obj.name)
-
-    def get_review_count(self, obj):
-        return obj.reviews.count() if hasattr(obj, "reviews") else 0
-
-    def get_average_rating(self, obj):
-        average = obj.reviews.aggregate(avg=Avg("rating")).get("avg") if hasattr(obj, "reviews") else None
-        return round(float(average), 1) if average is not None else float(obj.score)
 
 
 class DestinationCreateSerializer(serializers.ModelSerializer):
@@ -170,3 +181,12 @@ class DestinationDetailSerializer(DestinationSerializer):
             return None
         review = next((item for item in obj.reviews.all() if item.user_id == request.user.id), None)
         return DestinationReviewSerializer(review).data if review else None
+
+
+class FavoriteDestinationSerializer(serializers.ModelSerializer):
+    destination = DestinationSerializer(read_only=True)
+    favorited_at = serializers.DateTimeField(source="created_at", read_only=True)
+
+    class Meta:
+        model = FavoriteDestination
+        fields = ("id", "destination", "favorited_at")

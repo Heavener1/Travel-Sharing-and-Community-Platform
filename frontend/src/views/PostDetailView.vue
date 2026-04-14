@@ -1,6 +1,6 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
-import { useRoute } from "vue-router";
+import { computed, onMounted, reactive, ref, watch } from "vue";
+import { RouterLink, useRoute } from "vue-router";
 
 import MarkdownContent from "../components/MarkdownContent.vue";
 import { useReadingProgress } from "../composables/useReadingProgress";
@@ -21,6 +21,10 @@ const replyLoading = ref(false);
 const replyDraft = ref("");
 const activeCommentId = ref(null);
 const destinations = ref([]);
+const allRelatedPosts = ref([]);
+const allRelatedDestinations = ref([]);
+const relatedBatchIndex = ref(0);
+const relatedLoading = ref(false);
 const editModalOpen = ref(false);
 const editLoading = ref(false);
 const editForm = reactive({
@@ -40,6 +44,20 @@ const coverLayout = ref("stack");
 const canEdit = computed(() => authStore.isAuthenticated && post.value?.author === authStore.user?.id);
 const isSideLayout = computed(() => coverLayout.value === "side");
 
+const relatedPosts = computed(() => {
+  const list = allRelatedPosts.value;
+  if (!list.length) return [];
+  const start = (relatedBatchIndex.value * 4) % list.length;
+  return Array.from({ length: Math.min(4, list.length) }, (_, index) => list[(start + index) % list.length]);
+});
+
+const relatedDestinations = computed(() => {
+  const list = allRelatedDestinations.value;
+  if (!list.length) return [];
+  const start = (relatedBatchIndex.value * 3) % list.length;
+  return Array.from({ length: Math.min(3, list.length) }, (_, index) => list[(start + index) % list.length]);
+});
+
 const scrollToSection = (id) => {
   const element = document.getElementById(id);
   if (element) {
@@ -49,6 +67,10 @@ const scrollToSection = (id) => {
 
 const backToTop = () => {
   window.scrollTo({ top: 0, behavior: "smooth" });
+};
+
+const nextRelatedBatch = () => {
+  relatedBatchIndex.value += 1;
 };
 
 const detectCoverLayout = (coverUrl) => {
@@ -76,6 +98,18 @@ const syncEditForm = () => {
   editCoverPreview.value = post.value.cover || "";
 };
 
+const fetchRelatedContent = async (postId) => {
+  relatedLoading.value = true;
+  try {
+    const { data } = await http.get(`/social/posts/${postId}/related/`);
+    allRelatedPosts.value = data.related_posts || [];
+    allRelatedDestinations.value = data.related_destinations || [];
+    relatedBatchIndex.value = 0;
+  } finally {
+    relatedLoading.value = false;
+  }
+};
+
 const fetchPost = async () => {
   loading.value = true;
   try {
@@ -83,6 +117,7 @@ const fetchPost = async () => {
     post.value = data;
     syncEditForm();
     detectCoverLayout(data.cover);
+    await fetchRelatedContent(data.id);
   } finally {
     loading.value = false;
   }
@@ -121,6 +156,7 @@ const savePost = async () => {
     editCoverPreview.value = data.cover || "";
     editForm.cover = data.cover_reference || "";
     detectCoverLayout(data.cover);
+    await fetchRelatedContent(data.id);
     editModalOpen.value = false;
   } finally {
     editLoading.value = false;
@@ -209,6 +245,13 @@ const summarizePost = async () => {
 onMounted(async () => {
   await Promise.all([fetchPost(), fetchDestinations()]);
 });
+
+watch(
+  () => route.params.id,
+  async () => {
+    await fetchPost();
+  },
+);
 </script>
 
 <template>
@@ -288,6 +331,43 @@ onMounted(async () => {
       </div>
     </article>
 
+    <article class="panel">
+      <div class="split">
+        <div>
+          <p class="eyebrow">相关推荐</p>
+          <h3>继续延展这篇内容相关的阅读路径</h3>
+        </div>
+        <button class="btn btn-secondary btn-compact" :disabled="!allRelatedPosts.length && !allRelatedDestinations.length" @click="nextRelatedBatch">
+          换一批
+        </button>
+      </div>
+      <section class="grid-2 related-grid" style="margin-top: 16px;">
+        <div class="card">
+          <p class="eyebrow">相似帖子</p>
+          <div v-if="relatedLoading" class="muted">正在整理相关推荐...</div>
+          <div v-else-if="!relatedPosts.length" class="muted">暂时还没有匹配到更相关的帖子。</div>
+          <div v-else class="form-grid">
+            <RouterLink v-for="item in relatedPosts" :key="item.id" :to="`/community/${item.id}`" class="card related-link-card">
+              <strong>{{ item.title }}</strong>
+              <p class="muted">{{ item.author_name }} · {{ item.destination_name || "未关联景点" }}</p>
+            </RouterLink>
+          </div>
+        </div>
+
+        <div class="card">
+          <p class="eyebrow">关联景点</p>
+          <div v-if="relatedLoading" class="muted">正在整理相关推荐...</div>
+          <div v-else-if="!relatedDestinations.length" class="muted">暂时还没有关联景点推荐。</div>
+          <div v-else class="form-grid">
+            <RouterLink v-for="item in relatedDestinations" :key="item.id" :to="`/explore/${item.id}`" class="card related-link-card">
+              <strong>{{ item.name }}</strong>
+              <p class="muted">{{ item.city }} · {{ item.province }}</p>
+            </RouterLink>
+          </div>
+        </div>
+      </section>
+    </article>
+
     <section class="grid-2 post-discussion-grid">
       <article id="post-comments" class="panel">
         <p class="eyebrow">全部评论</p>
@@ -303,9 +383,7 @@ onMounted(async () => {
               </div>
             </div>
             <div class="action-row" style="margin-top: 12px;">
-              <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated" @click="openReplyModal(comment.id)">
-                回复
-              </button>
+              <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated" @click="openReplyModal(comment.id)">回复</button>
             </div>
             <div v-if="comment.replies?.length" class="form-grid reply-list" style="margin-top: 14px;">
               <div v-for="reply in comment.replies" :key="reply.id" class="comment-line reply-card">

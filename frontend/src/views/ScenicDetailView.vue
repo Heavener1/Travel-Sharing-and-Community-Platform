@@ -1,6 +1,6 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
-import { useRoute } from "vue-router";
+import { computed, onMounted, reactive, ref, watch } from "vue";
+import { RouterLink, useRoute } from "vue-router";
 
 import MarkdownContent from "../components/MarkdownContent.vue";
 import { useReadingProgress } from "../composables/useReadingProgress";
@@ -16,6 +16,10 @@ const destination = ref(null);
 const loading = ref(false);
 const submitLoading = ref(false);
 const reviewError = ref("");
+const allRelatedDestinations = ref([]);
+const allRelatedPosts = ref([]);
+const relatedBatchIndex = ref(0);
+const relatedLoading = ref(false);
 const reviewForm = reactive({
   rating: 5,
   content: "",
@@ -30,11 +34,42 @@ const maxRatingCount = computed(() => {
   return Math.max(...destination.value.rating_distribution.map((item) => item.count), 1);
 });
 
+const relatedDestinations = computed(() => {
+  const list = allRelatedDestinations.value;
+  if (!list.length) return [];
+  const start = (relatedBatchIndex.value * 4) % list.length;
+  return Array.from({ length: Math.min(4, list.length) }, (_, index) => list[(start + index) % list.length]);
+});
+
+const relatedPosts = computed(() => {
+  const list = allRelatedPosts.value;
+  if (!list.length) return [];
+  const start = (relatedBatchIndex.value * 4) % list.length;
+  return Array.from({ length: Math.min(4, list.length) }, (_, index) => list[(start + index) % list.length]);
+});
+
+const nextRelatedBatch = () => {
+  relatedBatchIndex.value += 1;
+};
+
+const fetchRelatedContent = async (destinationId) => {
+  relatedLoading.value = true;
+  try {
+    const { data } = await http.get(`/travel/destinations/${destinationId}/related/`);
+    allRelatedDestinations.value = data.related_destinations || [];
+    allRelatedPosts.value = data.related_posts || [];
+    relatedBatchIndex.value = 0;
+  } finally {
+    relatedLoading.value = false;
+  }
+};
+
 const fetchDestination = async () => {
   loading.value = true;
   try {
     const { data } = await http.get(`/travel/destinations/${route.params.id}/`);
     destination.value = data;
+    await fetchRelatedContent(data.id);
   } finally {
     loading.value = false;
   }
@@ -59,6 +94,7 @@ const submitReview = async () => {
     const { data } = await http.post(`/travel/destinations/${destination.value.id}/reviews/`, reviewForm);
     destination.value = data;
     reviewForm.content = "";
+    await fetchRelatedContent(data.id);
   } catch (error) {
     reviewError.value = error?.response?.data?.detail || "提交评价失败，请检查评分或稍后再试。";
   } finally {
@@ -102,6 +138,13 @@ const runAnalysis = async () => {
 };
 
 onMounted(fetchDestination);
+
+watch(
+  () => route.params.id,
+  async () => {
+    await fetchDestination();
+  },
+);
 </script>
 
 <template>
@@ -114,6 +157,7 @@ onMounted(fetchDestination);
       <div class="filter-bar filter-bar-tight">
         <button class="btn btn-secondary btn-compact" @click="scrollToSection('scenic-overview')">景点概览</button>
         <button class="btn btn-secondary btn-compact" @click="scrollToSection('scenic-analysis')">评分分析</button>
+        <button class="btn btn-secondary btn-compact" @click="scrollToSection('scenic-related')">相关推荐</button>
         <button class="btn btn-secondary btn-compact" @click="scrollToSection('scenic-reviews')">用户评价</button>
         <button class="btn btn-secondary btn-compact" @click="scrollToSection('scenic-review-form')">我要评价</button>
         <button class="btn theme-toggle-btn btn-compact" @click="backToTop">返回顶部</button>
@@ -182,6 +226,43 @@ onMounted(fetchDestination);
         </div>
       </article>
     </section>
+
+    <article id="scenic-related" class="panel">
+      <div class="split">
+        <div>
+          <p class="eyebrow">相关推荐</p>
+          <h3>和这个景点相关的内容继续看</h3>
+        </div>
+        <button class="btn btn-secondary btn-compact" :disabled="!allRelatedDestinations.length && !allRelatedPosts.length" @click="nextRelatedBatch">
+          换一批
+        </button>
+      </div>
+      <section class="grid-2 related-grid" style="margin-top: 16px;">
+        <div class="card">
+          <p class="eyebrow">相似景点</p>
+          <div v-if="relatedLoading" class="muted">正在整理相关推荐...</div>
+          <div v-else-if="!relatedDestinations.length" class="muted">暂时还没有匹配到相似景点。</div>
+          <div v-else class="form-grid">
+            <RouterLink v-for="item in relatedDestinations" :key="item.id" :to="`/explore/${item.id}`" class="card related-link-card">
+              <strong>{{ item.name }}</strong>
+              <p class="muted">{{ item.city }} · {{ item.province }}</p>
+            </RouterLink>
+          </div>
+        </div>
+
+        <div class="card">
+          <p class="eyebrow">相关帖子</p>
+          <div v-if="relatedLoading" class="muted">正在整理相关推荐...</div>
+          <div v-else-if="!relatedPosts.length" class="muted">暂时还没有关联的旅行故事。</div>
+          <div v-else class="form-grid">
+            <RouterLink v-for="item in relatedPosts" :key="item.id" :to="`/community/${item.id}`" class="card related-link-card">
+              <strong>{{ item.title }}</strong>
+              <p class="muted">{{ item.author_name }} · {{ item.destination_name || "未关联景点" }}</p>
+            </RouterLink>
+          </div>
+        </div>
+      </section>
+    </article>
 
     <section class="grid-2">
       <article id="scenic-reviews" class="panel">

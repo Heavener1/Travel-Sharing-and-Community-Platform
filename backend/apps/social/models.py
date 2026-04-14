@@ -10,6 +10,7 @@ class Post(models.Model):
         ("approved", "已通过"),
         ("rejected", "已拒绝"),
     )
+
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name="posts")
     destination = models.ForeignKey(
         Destination,
@@ -39,6 +40,7 @@ class PostComment(models.Model):
         ("approved", "已通过"),
         ("rejected", "已拒绝"),
     )
+
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="comments")
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name="post_comments")
     parent = models.ForeignKey("self", on_delete=models.CASCADE, null=True, blank=True, related_name="replies")
@@ -57,6 +59,16 @@ class PostLike(models.Model):
 
     class Meta:
         unique_together = ("post", "user")
+
+
+class FavoritePost(models.Model):
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="favorites")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="favorite_posts")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("post", "user")
+        ordering = ("-created_at",)
 
 
 class Notification(models.Model):
@@ -90,7 +102,11 @@ class UserAction(models.Model):
         ("view", "浏览"),
         ("like", "点赞"),
         ("plan", "加入行程"),
+        ("review", "评价"),
+        ("favorite", "收藏"),
+        ("post", "发布帖子"),
     )
+
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="travel_actions")
     destination = models.ForeignKey(Destination, on_delete=models.CASCADE, related_name="user_actions")
     action_type = models.CharField(max_length=20, choices=ACTION_CHOICES)
