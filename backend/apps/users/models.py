@@ -1,6 +1,8 @@
 from django.contrib.auth.models import User
 from django.db import models
 
+from apps.users.utils import get_user_display_name
+
 
 class UserProfile(models.Model):
     GENDER_CHOICES = (
@@ -24,4 +26,4 @@ class UserProfile(models.Model):
     homepage = models.URLField(blank=True)
 
     def __str__(self):
-        return self.nickname or self.user.username
+        return get_user_display_name(self.user)

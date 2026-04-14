@@ -166,7 +166,7 @@ onMounted(fetchDestination);
           <div class="post-author">
             <div class="profile-chip profile-chip-rich">
               <img v-if="review.author_avatar" :src="review.author_avatar" alt="avatar" class="mini-avatar" />
-              <span>{{ review.nickname || review.username }}</span>
+              <span>{{ review.display_name || review.nickname || review.username }}</span>
             </div>
             <span class="pill">{{ review.rating }} 星</span>
           </div>

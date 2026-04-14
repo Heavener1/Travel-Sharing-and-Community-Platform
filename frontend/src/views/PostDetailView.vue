@@ -14,6 +14,10 @@ const post = ref(null);
 const loading = ref(false);
 const commentLoading = ref(false);
 const commentDraft = ref("");
+const replyModalOpen = ref(false);
+const replyLoading = ref(false);
+const replyDraft = ref("");
+const activeCommentId = ref(null);
 const destinations = ref([]);
 const editModalOpen = ref(false);
 const editLoading = ref(false);
@@ -124,6 +128,35 @@ const submitComment = async () => {
   }
 };
 
+const toggleLike = async () => {
+  if (!authStore.isAuthenticated) return;
+  await http.post(`/social/posts/${route.params.id}/like/`);
+  await fetchPost();
+};
+
+const openReplyModal = (commentId) => {
+  activeCommentId.value = commentId;
+  replyDraft.value = "";
+  replyModalOpen.value = true;
+};
+
+const submitReply = async () => {
+  if (!replyDraft.value.trim() || !activeCommentId.value) return;
+  replyLoading.value = true;
+  try {
+    await http.post(`/social/posts/${route.params.id}/comments/`, {
+      content: replyDraft.value,
+      parent: activeCommentId.value,
+    });
+    replyDraft.value = "";
+    replyModalOpen.value = false;
+    activeCommentId.value = null;
+    await fetchPost();
+  } finally {
+    replyLoading.value = false;
+  }
+};
+
 const summarizePost = async () => {
   summaryLoading.value = true;
   summaryProgress.value = 0;
@@ -193,6 +226,9 @@ onMounted(async () => {
       </div>
 
       <div class="action-row" style="margin-top: 16px;">
+        <button class="btn btn-primary" :disabled="!authStore.isAuthenticated" @click="toggleLike">
+          {{ post.current_user_liked ? "取消点赞" : "点赞" }}
+        </button>
         <button v-if="canEdit" class="btn btn-secondary" @click="editModalOpen = true">编辑重新发布</button>
       </div>
     </article>
@@ -234,6 +270,11 @@ onMounted(async () => {
               <p>{{ comment.content }}</p>
               <p class="muted">{{ comment.created_at }}</p>
             </div>
+          </div>
+          <div class="action-row" style="margin-top: 12px;">
+            <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated" @click="openReplyModal(comment.id)">
+              回复
+            </button>
           </div>
           <div v-if="comment.replies?.length" class="form-grid" style="margin-top: 12px;">
             <div v-for="reply in comment.replies" :key="reply.id" class="comment-line">
@@ -284,6 +325,26 @@ onMounted(async () => {
         <textarea v-model="editForm.content" class="textarea" placeholder="更新你的旅行故事内容"></textarea>
         <button class="btn btn-primary" :disabled="editLoading" @click="savePost">
           {{ editLoading ? "重新发布中..." : "保存并重新发布" }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="replyModalOpen" class="modal-backdrop" @click.self="replyModalOpen = false">
+    <div class="modal-card">
+      <div class="split">
+        <h3>回复评论</h3>
+        <button class="btn btn-secondary" @click="replyModalOpen = false">关闭</button>
+      </div>
+      <div class="form-grid">
+        <textarea
+          v-model="replyDraft"
+          class="textarea"
+          placeholder="写下你的回复"
+          :disabled="replyLoading"
+        ></textarea>
+        <button class="btn btn-primary" :disabled="replyLoading" @click="submitReply">
+          {{ replyLoading ? "提交中..." : "提交回复" }}
         </button>
       </div>
     </div>

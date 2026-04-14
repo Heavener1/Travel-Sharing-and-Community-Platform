@@ -84,14 +84,14 @@ class MeView(APIView):
     def get(self, request):
         UserProfile.objects.get_or_create(
             user=request.user,
-            defaults={"nickname": request.user.username},
+            defaults={"nickname": ""},
         )
         return Response(self._serialized_user(request.user.id))
 
     def patch(self, request):
         profile, _ = UserProfile.objects.get_or_create(
             user=request.user,
-            defaults={"nickname": request.user.username},
+            defaults={"nickname": ""},
         )
         serializer = ProfileUpdateSerializer(profile, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)

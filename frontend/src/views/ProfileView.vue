@@ -152,7 +152,7 @@ onMounted(() => {
         <div class="profile-center">
           <img v-if="avatarPreview" :src="avatarPreview" alt="avatar" class="profile-avatar" />
           <div>
-            <h3>{{ profileForm.nickname || authStore.user.username }}</h3>
+            <h3>{{ authStore.user.display_name || profileForm.nickname || profileForm.first_name || authStore.user.email || authStore.user.username }}</h3>
             <p class="muted">{{ profileForm.signature || "还没有设置个性签名。" }}</p>
           </div>
         </div>
@@ -293,7 +293,7 @@ onMounted(() => {
                 <div class="comment-line">
                   <img :src="review.author_avatar" alt="avatar" class="small-avatar mini-avatar" />
                   <div>
-                    <strong>{{ review.nickname || review.username }}</strong>
+                    <strong>{{ review.display_name || review.nickname || review.username }}</strong>
                     <p class="muted">{{ review.destination_name || "景点评价" }}</p>
                   </div>
                 </div>

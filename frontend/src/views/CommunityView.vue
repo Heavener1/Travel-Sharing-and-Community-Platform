@@ -235,7 +235,9 @@ onMounted(async () => {
         <p class="summary-two-lines">{{ post.content_preview }}</p>
         <div class="action-row">
           <RouterLink :to="`/community/${post.id}`" class="btn btn-secondary">查看详情</RouterLink>
-          <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated" @click="toggleLike(post.id)">点赞</button>
+          <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated" @click="toggleLike(post.id)">
+            {{ post.current_user_liked ? "取消点赞" : "点赞" }}
+          </button>
           <button class="btn btn-primary" :disabled="!authStore.isAuthenticated" @click="openCommentModal(post.id)">评论</button>
         </div>
       </article>
