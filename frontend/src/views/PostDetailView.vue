@@ -24,6 +24,7 @@ const editForm = reactive({
   destination: "",
   tags: "",
 });
+const editCoverPreview = ref("");
 const aiProviders = ref({});
 const aiForm = reactive({
   provider: "qwen",
@@ -40,9 +41,10 @@ const syncEditForm = () => {
   if (!post.value) return;
   editForm.title = post.value.title || "";
   editForm.content = post.value.content || "";
-  editForm.cover = post.value.cover || "";
+  editForm.cover = post.value.cover_reference || "";
   editForm.destination = post.value.destination || "";
   editForm.tags = post.value.tags || "";
+  editCoverPreview.value = post.value.cover || "";
 };
 
 const fetchPost = async () => {
@@ -79,6 +81,7 @@ const uploadCover = async (event) => {
     headers: { "Content-Type": "multipart/form-data" },
   });
   editForm.cover = data.reference || data.url;
+  editCoverPreview.value = data.url || data.reference || "";
   event.target.value = "";
 };
 
@@ -94,6 +97,8 @@ const savePost = async () => {
     };
     const { data } = await http.patch(`/social/posts/${route.params.id}/`, payload);
     post.value = data;
+    editCoverPreview.value = data.cover || "";
+    editForm.cover = data.cover_reference || "";
     editModalOpen.value = false;
   } finally {
     editLoading.value = false;
@@ -277,6 +282,7 @@ onMounted(async () => {
           <option value="">关联景点</option>
           <option v-for="item in destinations" :key="item.id" :value="item.id">{{ item.name }}</option>
         </select>
+        <img v-if="editCoverPreview" :src="editCoverPreview" alt="封面预览" class="cover" />
         <input v-model="editForm.cover" class="input" placeholder="封面图片引用" />
         <input class="input" type="file" accept="image/*" @change="uploadCover" />
         <input v-model="editForm.tags" class="input" placeholder="标签，例如：海边,自驾,日落" />
