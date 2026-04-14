@@ -399,6 +399,15 @@ h2 {
   flex: 1;
 }
 
+.post-author > div h3 {
+  margin-bottom: 4px;
+}
+
+.post-author > div .muted {
+  margin-bottom: 6px;
+}
+
+
 .comment-line {
   align-items: flex-start;
 }

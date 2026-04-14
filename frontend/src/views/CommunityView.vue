@@ -223,7 +223,7 @@ onMounted(async () => {
 
     <div class="form-grid" style="margin-top: 16px;">
       <article v-for="post in posts" :key="post.id" class="card">
-        <img v-if="post.cover" :src="post.cover" :alt="post.title" class="cover" />
+        
         <div class="post-author">
           <img v-if="post.author_avatar" :src="post.author_avatar" alt="author avatar" class="author-avatar" />
           <div>
@@ -232,6 +232,7 @@ onMounted(async () => {
           </div>
           <span class="pill">{{ post.like_count }} 赞</span>
         </div>
+        <img v-if="post.cover" :src="post.cover" :alt="post.title" class="cover" />
         <p class="summary-two-lines">{{ post.content_preview }}</p>
         <div class="action-row">
           <RouterLink :to="`/community/${post.id}`" class="btn btn-secondary">查看详情</RouterLink>
