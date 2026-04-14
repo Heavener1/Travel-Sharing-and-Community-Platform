@@ -10,7 +10,6 @@ import { useAuthStore } from "../stores/auth";
 const authStore = useAuthStore();
 const posts = ref([]);
 const destinations = ref([]);
-const aiProviders = ref({});
 const form = reactive({
   title: "",
   content: "",
@@ -19,10 +18,6 @@ const form = reactive({
   tags: "",
 });
 const coverPreview = ref("");
-const aiForm = reactive({
-  provider: "qwen",
-  model: "",
-});
 const commentDrafts = reactive({});
 const replyDrafts = reactive({});
 const postModalOpen = ref(false);
@@ -34,6 +29,23 @@ const aiPolishLoading = ref(false);
 const aiPolishProgress = ref(0);
 const aiPolishStatus = ref("");
 const aiPolishText = ref("");
+const aiComparison = reactive({
+  original: {
+    title: "",
+    tags: "",
+    content: "",
+  },
+  polished: {
+    title: "",
+    tags: "",
+    content: "",
+  },
+  selected: {
+    title: "original",
+    tags: "original",
+    content: "original",
+  },
+});
 
 const fetchPosts = async () => {
   const { data } = await http.get("/social/posts/");
@@ -43,15 +55,6 @@ const fetchPosts = async () => {
 const fetchDestinations = async () => {
   const { data } = await http.get("/travel/destinations/");
   destinations.value = data.results ?? data;
-};
-
-const fetchAIProviders = async () => {
-  if (!authStore.isAuthenticated) return;
-  const { data } = await http.get("/ai/providers/");
-  aiProviders.value = data;
-  if (data[aiForm.provider] && !aiForm.model) {
-    aiForm.model = data[aiForm.provider].default_model;
-  }
 };
 
 const resetPostForm = () => {
@@ -64,6 +67,26 @@ const resetPostForm = () => {
   aiPolishText.value = "";
   aiPolishProgress.value = 0;
   aiPolishStatus.value = "";
+  aiComparison.original.title = "";
+  aiComparison.original.tags = "";
+  aiComparison.original.content = "";
+  aiComparison.polished.title = "";
+  aiComparison.polished.tags = "";
+  aiComparison.polished.content = "";
+  aiComparison.selected.title = "original";
+  aiComparison.selected.tags = "original";
+  aiComparison.selected.content = "original";
+};
+
+const applySelectedPolish = () => {
+  form.title =
+    aiComparison.selected.title === "polished" ? aiComparison.polished.title || aiComparison.original.title : aiComparison.original.title;
+  form.tags =
+    aiComparison.selected.tags === "polished" ? aiComparison.polished.tags || aiComparison.original.tags : aiComparison.original.tags;
+  form.content =
+    aiComparison.selected.content === "polished"
+      ? aiComparison.polished.content || aiComparison.original.content
+      : aiComparison.original.content;
 };
 
 const submitPost = async () => {
@@ -89,14 +112,21 @@ const uploadCover = async (event) => {
 const polishPost = async () => {
   aiPolishLoading.value = true;
   aiPolishProgress.value = 0;
-  aiPolishStatus.value = "准备润色内容...";
+  aiPolishStatus.value = "正在润色内容...";
   aiPolishText.value = "";
+  aiComparison.original.title = form.title;
+  aiComparison.original.tags = form.tags;
+  aiComparison.original.content = form.content;
+  aiComparison.polished.title = "";
+  aiComparison.polished.tags = "";
+  aiComparison.polished.content = "";
+  aiComparison.selected.title = "original";
+  aiComparison.selected.tags = "original";
+  aiComparison.selected.content = "original";
   try {
     await streamRequest({
       path: "/ai/polish-post/stream/",
       body: {
-        provider: aiForm.provider,
-        model: aiForm.model || undefined,
         title: form.title,
         content: form.content,
         tags: form.tags,
@@ -124,9 +154,14 @@ const polishPost = async () => {
     const titleMatch = text.match(/标题[:：]\s*(.*)/);
     const contentMatch = text.match(/正文[:：]\s*([\s\S]*?)标签建议[:：]/);
     const tagsMatch = text.match(/标签建议[:：]\s*(.*)/);
-    if (titleMatch) form.title = titleMatch[1].trim();
-    if (contentMatch) form.content = contentMatch[1].trim();
-    if (tagsMatch) form.tags = tagsMatch[1].trim();
+    aiComparison.polished.title = titleMatch ? titleMatch[1].trim() : aiComparison.original.title;
+    aiComparison.polished.content = contentMatch ? contentMatch[1].trim() : aiComparison.original.content;
+    aiComparison.polished.tags = tagsMatch ? tagsMatch[1].trim() : aiComparison.original.tags;
+    aiComparison.selected.title = aiComparison.polished.title && aiComparison.polished.title !== aiComparison.original.title ? "polished" : "original";
+    aiComparison.selected.tags = aiComparison.polished.tags && aiComparison.polished.tags !== aiComparison.original.tags ? "polished" : "original";
+    aiComparison.selected.content =
+      aiComparison.polished.content && aiComparison.polished.content !== aiComparison.original.content ? "polished" : "original";
+    applySelectedPolish();
   } catch (error) {
     aiPolishStatus.value = error.message || "AI 润色失败";
   } finally {
@@ -170,7 +205,7 @@ const submitComment = async (postId, parentId = null) => {
 };
 
 onMounted(async () => {
-  await Promise.all([fetchPosts(), fetchDestinations(), fetchAIProviders()]);
+  await Promise.all([fetchPosts(), fetchDestinations()]);
 });
 </script>
 
@@ -197,7 +232,7 @@ onMounted(async () => {
           </div>
           <span class="pill">{{ post.like_count }} 赞</span>
         </div>
-        <p class="summary-two-lines">{{ post.content }}</p>
+        <p class="summary-two-lines">{{ post.content_preview }}</p>
         <div class="action-row">
           <RouterLink :to="`/community/${post.id}`" class="btn btn-secondary">查看详情</RouterLink>
           <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated" @click="toggleLike(post.id)">点赞</button>
@@ -224,18 +259,6 @@ onMounted(async () => {
         <input class="input" type="file" accept="image/*" @change="uploadCover" />
         <input v-model="form.tags" class="input" placeholder="标签，例如：海边,自驾,日落" />
         <textarea v-model="form.content" class="textarea" placeholder="写下你的路线、花费、体验和建议"></textarea>
-        <div class="grid-3">
-          <select v-model="aiForm.provider" class="select" @change="aiForm.model = aiProviders[aiForm.provider]?.default_model || ''">
-            <option value="qwen">千问</option>
-            <option value="kimi">Kimi</option>
-          </select>
-          <select v-model="aiForm.model" class="select">
-            <option v-for="item in (aiProviders[aiForm.provider]?.models || [])" :key="item" :value="item">
-              {{ item }}
-            </option>
-          </select>
-          <input v-model="aiForm.model" class="input" placeholder="也可以手动输入模型名" />
-        </div>
         <div v-if="aiPolishLoading || aiPolishText || aiPolishStatus" class="stream-box">
           <div class="stream-head">
             <strong>AI 润色进度</strong>
@@ -245,8 +268,86 @@ onMounted(async () => {
             <div class="progress-bar" :style="{ width: `${aiPolishProgress}%` }"></div>
           </div>
           <p class="muted">{{ aiPolishStatus }}</p>
-          <div v-if="aiPolishText" class="card">
+          <div v-if="aiPolishText && aiPolishProgress < 100" class="card">
             <MarkdownContent :content="aiPolishText" />
+          </div>
+        </div>
+        <div
+          v-if="aiComparison.polished.title || aiComparison.polished.tags || aiComparison.polished.content"
+          class="form-grid"
+        >
+          <div class="compare-grid">
+            <div class="card">
+              <p class="eyebrow">标题对比</p>
+              <p><strong>润色前：</strong>{{ aiComparison.original.title || "未填写" }}</p>
+              <p><strong>润色后：</strong>{{ aiComparison.polished.title || "未生成" }}</p>
+              <div class="action-row">
+                <button
+                  class="btn"
+                  :class="aiComparison.selected.title === 'original' ? 'btn-secondary' : 'btn-primary'"
+                  @click="aiComparison.selected.title = 'original'; applySelectedPolish()"
+                >
+                  使用润色前
+                </button>
+                <button
+                  class="btn"
+                  :class="aiComparison.selected.title === 'polished' ? 'btn-secondary' : 'btn-primary'"
+                  @click="aiComparison.selected.title = 'polished'; applySelectedPolish()"
+                >
+                  使用润色后
+                </button>
+              </div>
+            </div>
+            <div class="card">
+              <p class="eyebrow">标签对比</p>
+              <p><strong>润色前：</strong>{{ aiComparison.original.tags || "未填写" }}</p>
+              <p><strong>润色后：</strong>{{ aiComparison.polished.tags || "未生成" }}</p>
+              <div class="action-row">
+                <button
+                  class="btn"
+                  :class="aiComparison.selected.tags === 'original' ? 'btn-secondary' : 'btn-primary'"
+                  @click="aiComparison.selected.tags = 'original'; applySelectedPolish()"
+                >
+                  使用润色前
+                </button>
+                <button
+                  class="btn"
+                  :class="aiComparison.selected.tags === 'polished' ? 'btn-secondary' : 'btn-primary'"
+                  @click="aiComparison.selected.tags = 'polished'; applySelectedPolish()"
+                >
+                  使用润色后
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <p class="eyebrow">正文对比</p>
+            <div class="compare-grid">
+              <div class="card compare-card-inner">
+                <p><strong>润色前</strong></p>
+                <MarkdownContent :content="aiComparison.original.content || '未填写'" />
+              </div>
+              <div class="card compare-card-inner">
+                <p><strong>润色后</strong></p>
+                <MarkdownContent :content="aiComparison.polished.content || '未生成'" />
+              </div>
+            </div>
+            <div class="action-row">
+              <button
+                class="btn"
+                :class="aiComparison.selected.content === 'original' ? 'btn-secondary' : 'btn-primary'"
+                @click="aiComparison.selected.content = 'original'; applySelectedPolish()"
+              >
+                正文使用润色前
+              </button>
+              <button
+                class="btn"
+                :class="aiComparison.selected.content === 'polished' ? 'btn-secondary' : 'btn-primary'"
+                @click="aiComparison.selected.content = 'polished'; applySelectedPolish()"
+              >
+                正文使用润色后
+              </button>
+            </div>
           </div>
         </div>
         <div class="action-row">
