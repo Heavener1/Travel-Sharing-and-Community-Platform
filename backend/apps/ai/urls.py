@@ -4,6 +4,7 @@ from apps.ai.views import (
     DestinationAnalysisStreamView,
     PostPolishStreamView,
     PostPolishView,
+    PostSummaryStreamView,
     ProviderListView,
     ScenicQAStreamView,
     ScenicQAView,
@@ -18,6 +19,7 @@ urlpatterns = [
     path("destination-analysis/stream/", DestinationAnalysisStreamView.as_view(), name="ai-destination-analysis-stream"),
     path("polish-post/", PostPolishView.as_view(), name="ai-polish-post"),
     path("polish-post/stream/", PostPolishStreamView.as_view(), name="ai-polish-post-stream"),
+    path("post-summary/stream/", PostSummaryStreamView.as_view(), name="ai-post-summary-stream"),
     path("scenic-qa/", ScenicQAView.as_view(), name="ai-scenic-qa"),
     path("scenic-qa/stream/", ScenicQAStreamView.as_view(), name="ai-scenic-qa-stream"),
 ]

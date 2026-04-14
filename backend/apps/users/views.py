@@ -10,7 +10,14 @@ from PIL import Image, ImageDraw, ImageFont
 from rest_framework import generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken
 
+from apps.planner.models import TripPlan
+from apps.planner.serializers import TripPlanSerializer
+from apps.social.models import Post
+from apps.social.serializers import PostSerializer
+from apps.travel.models import DestinationReview
+from apps.travel.serializers import DestinationReviewSerializer
 from apps.users.models import UserProfile
 from apps.users.serializers import LoginSerializer, ProfileUpdateSerializer, RegisterSerializer, UserSerializer
 
@@ -42,6 +49,19 @@ class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        refresh = RefreshToken.for_user(user)
+        return Response(
+            {
+                "refresh": str(refresh),
+                "access": str(refresh.access_token),
+                "user": UserSerializer(user).data,
+            }
+        )
 
 
 class LoginView(APIView):
@@ -77,3 +97,52 @@ class MeView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(self._serialized_user(request.user.id))
+
+
+class UserDashboardView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        recent_posts = (
+            Post.objects.filter(author=request.user)
+            .select_related("destination", "author", "author__profile")
+            .prefetch_related("comments", "likes")
+            .order_by("-created_at")[:5]
+        )
+        recent_trips = (
+            TripPlan.objects.filter(user=request.user)
+            .prefetch_related("stops__destination")
+            .order_by("-created_at")[:5]
+        )
+        recent_reviews = (
+            DestinationReview.objects.filter(user=request.user)
+            .select_related("destination", "user", "user__profile")
+            .order_by("-created_at")[:5]
+        )
+
+        return Response(
+            {
+                "stats": {
+                    "post_count": Post.objects.filter(author=request.user).count(),
+                    "approved_post_count": Post.objects.filter(author=request.user, status="approved").count(),
+                    "pending_post_count": Post.objects.filter(author=request.user, status="pending").count(),
+                    "trip_count": TripPlan.objects.filter(user=request.user).count(),
+                    "review_count": DestinationReview.objects.filter(user=request.user).count(),
+                },
+                "recent_posts": PostSerializer(
+                    recent_posts,
+                    many=True,
+                    context={"request": request},
+                ).data,
+                "recent_trips": TripPlanSerializer(
+                    recent_trips,
+                    many=True,
+                    context={"request": request},
+                ).data,
+                "recent_reviews": DestinationReviewSerializer(
+                    recent_reviews,
+                    many=True,
+                    context={"request": request},
+                ).data,
+            }
+        )

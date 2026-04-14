@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted, reactive, ref } from "vue";
+import { RouterLink } from "vue-router";
 
 import MarkdownContent from "../components/MarkdownContent.vue";
 import http from "../api/http";
@@ -52,14 +53,20 @@ const fetchAIProviders = async () => {
   }
 };
 
-const submitPost = async () => {
-  await http.post("/social/posts/", form);
+const resetPostForm = () => {
   form.title = "";
   form.content = "";
   form.cover = "";
   form.destination = "";
   form.tags = "";
   aiPolishText.value = "";
+  aiPolishProgress.value = 0;
+  aiPolishStatus.value = "";
+};
+
+const submitPost = async () => {
+  await http.post("/social/posts/", form);
+  resetPostForm();
   postModalOpen.value = false;
   await fetchPosts();
 };
@@ -110,9 +117,9 @@ const polishPost = async () => {
     });
 
     const text = aiPolishText.value || "";
-    const titleMatch = text.match(/标题[:：](.*)/);
-    const contentMatch = text.match(/正文[:：]([\s\S]*?)标签建议[:：]/);
-    const tagsMatch = text.match(/标签建议[:：](.*)/);
+    const titleMatch = text.match(/标题[:：]\s*(.*)/);
+    const contentMatch = text.match(/正文[:：]\s*([\s\S]*?)标签建议[:：]/);
+    const tagsMatch = text.match(/标签建议[:：]\s*(.*)/);
     if (titleMatch) form.title = titleMatch[1].trim();
     if (contentMatch) form.content = contentMatch[1].trim();
     if (tagsMatch) form.tags = tagsMatch[1].trim();
@@ -168,7 +175,7 @@ onMounted(async () => {
     <div class="split">
       <div>
         <p class="eyebrow">社区动态</p>
-        <p class="muted">分享真实旅途体验，围绕目的地和路线展开互动。</p>
+        <p class="muted">分享真实旅途体验，围绕景点、路线和玩法展开互动。</p>
       </div>
       <button class="btn btn-primary btn-compact" :disabled="!authStore.isAuthenticated" @click="postModalOpen = true">
         发布旅行故事
@@ -182,32 +189,15 @@ onMounted(async () => {
           <img v-if="post.author_avatar" :src="post.author_avatar" alt="author avatar" class="author-avatar" />
           <div>
             <h3>{{ post.title }}</h3>
-            <p class="muted">{{ post.author_name }} · {{ post.destination_name || "未关联目的地" }}</p>
+            <p class="muted">{{ post.author_name }} · {{ post.destination_name || "未关联景点" }}</p>
           </div>
-          <span class="pill">{{ post.status === "approved" ? `${post.like_count} 赞` : "待审核" }}</span>
+          <span class="pill">{{ post.like_count }} 赞</span>
         </div>
-        <p>{{ post.content }}</p>
-        <p v-if="post.review_note" class="muted">审核备注：{{ post.review_note }}</p>
+        <p class="summary-two-lines">{{ post.content }}</p>
         <div class="action-row">
+          <RouterLink :to="`/community/${post.id}`" class="btn btn-secondary">查看详情</RouterLink>
           <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated" @click="toggleLike(post.id)">点赞</button>
           <button class="btn btn-primary" :disabled="!authStore.isAuthenticated" @click="openCommentModal(post.id)">评论</button>
-        </div>
-        <div class="form-grid" v-if="post.comments?.length">
-          <div v-for="comment in post.comments" :key="comment.id" class="panel">
-            <div class="comment-line">
-              <img v-if="comment.author_avatar" :src="comment.author_avatar" alt="comment avatar" class="author-avatar small-avatar" />
-              <p><strong>{{ comment.author_name }}</strong>：{{ comment.content }}</p>
-            </div>
-            <div v-if="comment.replies?.length" class="form-grid">
-              <div v-for="reply in comment.replies" :key="reply.id" class="comment-line">
-                <img v-if="reply.author_avatar" :src="reply.author_avatar" alt="reply avatar" class="author-avatar small-avatar" />
-                <p class="muted">{{ reply.author_name }} 回复：{{ reply.content }}</p>
-              </div>
-            </div>
-            <div class="action-row">
-              <button class="btn btn-primary" :disabled="!authStore.isAuthenticated" @click="openReplyModal(post.id, comment.id)">回复</button>
-            </div>
-          </div>
         </div>
       </article>
     </div>
@@ -222,12 +212,12 @@ onMounted(async () => {
       <div class="form-grid">
         <input v-model="form.title" class="input" placeholder="标题" />
         <select v-model="form.destination" class="select">
-          <option value="">关联目的地</option>
+          <option value="">关联景点</option>
           <option v-for="item in destinations" :key="item.id" :value="item.id">{{ item.name }}</option>
         </select>
         <input v-model="form.cover" class="input" placeholder="封面图片引用" />
         <input class="input" type="file" accept="image/*" @change="uploadCover" />
-        <input v-model="form.tags" class="input" placeholder="标签，例如：海岛,自驾,日落" />
+        <input v-model="form.tags" class="input" placeholder="标签，例如：海边,自驾,日落" />
         <textarea v-model="form.content" class="textarea" placeholder="写下你的路线、花费、体验和建议"></textarea>
         <div class="grid-3">
           <select v-model="aiForm.provider" class="select" @change="aiForm.model = aiProviders[aiForm.provider]?.default_model || ''">

@@ -1,6 +1,8 @@
 from collections import defaultdict
+from datetime import timedelta
 
 from django.contrib.auth.models import User
+from django.db.models import Count
 from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
@@ -8,7 +10,7 @@ from rest_framework.views import APIView
 from django.db.models import Q
 
 from apps.social.models import Post, PostComment, PostLike, UserAction
-from apps.social.serializers import PostCommentSerializer, PostSerializer
+from apps.social.serializers import PostCommentSerializer, PostSerializer, PostUpdateSerializer
 from apps.travel.models import Destination, DestinationReview
 
 
@@ -37,12 +39,12 @@ class PostListCreateView(generics.ListCreateAPIView):
         return [permissions.AllowAny()]
 
     def perform_create(self, serializer):
-        post = serializer.save(author=self.request.user)
+        post = serializer.save(author=self.request.user, status="approved")
         if post.destination:
             UserAction.objects.create(user=self.request.user, destination=post.destination, action_type="view")
 
 
-class PostDetailView(generics.RetrieveAPIView):
+class PostDetailView(generics.RetrieveUpdateAPIView):
     serializer_class = PostSerializer
 
     def get_queryset(self):
@@ -53,6 +55,27 @@ class PostDetailView(generics.RetrieveAPIView):
             return queryset.filter(Q(status="approved") | Q(author=self.request.user)).distinct()
         return queryset.filter(status="approved")
 
+    def get_permissions(self):
+        if self.request.method in ("PUT", "PATCH"):
+            return [permissions.IsAuthenticated()]
+        return [permissions.AllowAny()]
+
+    def get_serializer_class(self):
+        if self.request.method in ("PUT", "PATCH"):
+            return PostUpdateSerializer
+        return PostSerializer
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if not request.user.is_staff and instance.author_id != request.user.id:
+            raise permissions.PermissionDenied("只有帖子作者可以编辑重新发布。")
+        partial = kwargs.pop("partial", False)
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(status="approved", review_note="")
+        output = PostSerializer(instance, context={"request": request}).data
+        return Response(output)
+
 
 class CommentCreateView(generics.CreateAPIView):
     serializer_class = PostCommentSerializer
@@ -62,7 +85,7 @@ class CommentCreateView(generics.CreateAPIView):
         post = Post.objects.get(pk=self.kwargs["post_id"])
         if post.status != "approved" and not self.request.user.is_staff and post.author != self.request.user:
             raise permissions.PermissionDenied("该帖子尚未通过审核")
-        serializer.save(author=self.request.user, post=post)
+        serializer.save(author=self.request.user, post=post, status="approved")
 
 
 class LikeToggleView(APIView):
@@ -121,6 +144,37 @@ class AdminDashboardView(APIView):
                 }
             )
 
+        today = timezone.localdate()
+        recent_days = [today - timedelta(days=offset) for offset in range(6, -1, -1)]
+        user_trend_map = {
+            item["date_joined__date"]: item["count"]
+            for item in User.objects.filter(date_joined__date__gte=recent_days[0])
+            .values("date_joined__date")
+            .annotate(count=Count("id"))
+        }
+        post_trend_map = {
+            item["created_at__date"]: item["count"]
+            for item in Post.objects.filter(created_at__date__gte=recent_days[0])
+            .values("created_at__date")
+            .annotate(count=Count("id"))
+        }
+        destination_trend_map = {
+            item["created_at__date"]: item["count"]
+            for item in Destination.objects.filter(created_at__date__gte=recent_days[0])
+            .values("created_at__date")
+            .annotate(count=Count("id"))
+        }
+
+        recent_trends = [
+            {
+                "date": day.strftime("%Y-%m-%d"),
+                "user_count": user_trend_map.get(day, 0),
+                "post_count": post_trend_map.get(day, 0),
+                "destination_count": destination_trend_map.get(day, 0),
+            }
+            for day in recent_days
+        ]
+
         return Response(
             {
                 "user_count": User.objects.count(),
@@ -131,5 +185,6 @@ class AdminDashboardView(APIView):
                 "pending_post_count": Post.objects.filter(status="pending").count(),
                 "pending_comment_count": PostComment.objects.filter(status="pending").count(),
                 "timeline": timeline,
+                "recent_trends": recent_trends,
             }
         )

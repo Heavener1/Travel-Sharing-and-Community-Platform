@@ -73,3 +73,11 @@ class PostSerializer(serializers.ModelSerializer):
             context=self.context,
         ).data
         return data
+
+
+class PostUpdateSerializer(serializers.ModelSerializer):
+    cover = serializers.CharField(required=False, allow_blank=True)
+
+    class Meta:
+        model = Post
+        fields = ("destination", "title", "content", "cover", "tags")

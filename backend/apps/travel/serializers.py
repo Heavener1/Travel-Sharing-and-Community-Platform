@@ -52,11 +52,12 @@ class HotelSerializer(serializers.ModelSerializer):
 class DestinationReviewSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
     nickname = serializers.CharField(source="user.profile.nickname", read_only=True)
+    destination_name = serializers.CharField(source="destination.name", read_only=True)
     author_avatar = serializers.SerializerMethodField()
 
     class Meta:
         model = DestinationReview
-        fields = ("id", "rating", "content", "created_at", "username", "nickname", "author_avatar")
+        fields = ("id", "rating", "content", "created_at", "username", "nickname", "destination_name", "author_avatar")
 
     def get_author_avatar(self, obj):
         avatar = getattr(getattr(obj.user, "profile", None), "avatar", "")

@@ -15,10 +15,20 @@ const dashboard = ref({
   pending_post_count: 0,
   pending_comment_count: 0,
   timeline: [],
+  recent_trends: [],
 });
 
 const maxTimelineCount = computed(() => {
   const allCounts = dashboard.value.timeline.flatMap((item) => item.segments.map((segment) => segment.count));
+  return Math.max(...allCounts, 1);
+});
+
+const maxTrendCount = computed(() => {
+  const allCounts = dashboard.value.recent_trends.flatMap((item) => [
+    item.user_count,
+    item.post_count,
+    item.destination_count,
+  ]);
   return Math.max(...allCounts, 1);
 });
 
@@ -68,38 +78,83 @@ onMounted(() => {
       </article>
     </section>
 
-    <section class="panel">
-      <div class="split">
-        <div>
-          <p class="eyebrow">发帖时段统计</p>
-          <h3>按日期与 6 小时时段查看用户发帖数量</h3>
+    <section class="grid-2">
+      <article class="panel">
+        <div class="split">
+          <div>
+            <p class="eyebrow">近 7 天趋势</p>
+            <h3>用户、帖子与景点新增情况</h3>
+          </div>
+          <p class="muted">{{ loading ? "加载中..." : `共 ${dashboard.recent_trends.length} 天数据` }}</p>
         </div>
-        <p class="muted">{{ loading ? "数据加载中..." : `共 ${dashboard.timeline.length} 天数据` }}</p>
-      </div>
 
-      <div class="form-grid" style="margin-top: 18px;">
-        <div v-if="!dashboard.timeline.length" class="card muted">当前暂无帖子统计数据。</div>
-        <article v-for="item in dashboard.timeline" :key="item.date" class="card">
-          <div class="split">
-            <div>
-              <h3>{{ item.date }}</h3>
-              <p class="muted">当日发帖总数 {{ item.total }}</p>
+        <div class="form-grid" style="margin-top: 18px;">
+          <div v-if="!dashboard.recent_trends.length" class="card muted">当前暂无近 7 天趋势数据。</div>
+          <article v-for="item in dashboard.recent_trends" :key="item.date" class="card">
+            <div class="split">
+              <h4>{{ item.date }}</h4>
+              <span class="pill">合计 {{ item.user_count + item.post_count + item.destination_count }}</span>
             </div>
-          </div>
-          <div class="form-grid">
-            <div v-for="segment in item.segments" :key="segment.label" class="rating-bar-row">
-              <span>{{ segment.label }}</span>
-              <div class="progress-track admin-track">
-                <div
-                  class="progress-bar admin-bar"
-                  :style="{ width: `${(segment.count / maxTimelineCount) * 100}%` }"
-                ></div>
+            <div class="form-grid">
+              <div class="rating-bar-row">
+                <span>用户</span>
+                <div class="progress-track admin-track">
+                  <div class="progress-bar admin-bar" :style="{ width: `${(item.user_count / maxTrendCount) * 100}%` }"></div>
+                </div>
+                <span class="muted">{{ item.user_count }}</span>
               </div>
-              <span class="muted">{{ segment.count }} 条</span>
+              <div class="rating-bar-row">
+                <span>帖子</span>
+                <div class="progress-track admin-track">
+                  <div class="progress-bar admin-bar" :style="{ width: `${(item.post_count / maxTrendCount) * 100}%` }"></div>
+                </div>
+                <span class="muted">{{ item.post_count }}</span>
+              </div>
+              <div class="rating-bar-row">
+                <span>景点</span>
+                <div class="progress-track admin-track">
+                  <div class="progress-bar admin-bar" :style="{ width: `${(item.destination_count / maxTrendCount) * 100}%` }"></div>
+                </div>
+                <span class="muted">{{ item.destination_count }}</span>
+              </div>
             </div>
+          </article>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="split">
+          <div>
+            <p class="eyebrow">发帖时段统计</p>
+            <h3>按日期与 6 小时时段查看发帖数量</h3>
           </div>
-        </article>
-      </div>
+          <p class="muted">{{ loading ? "加载中..." : `共 ${dashboard.timeline.length} 天数据` }}</p>
+        </div>
+
+        <div class="form-grid" style="margin-top: 18px;">
+          <div v-if="!dashboard.timeline.length" class="card muted">当前暂无帖子统计数据。</div>
+          <article v-for="item in dashboard.timeline" :key="item.date" class="card">
+            <div class="split">
+              <div>
+                <h4>{{ item.date }}</h4>
+                <p class="muted">当日发帖总数 {{ item.total }}</p>
+              </div>
+            </div>
+            <div class="form-grid">
+              <div v-for="segment in item.segments" :key="segment.label" class="rating-bar-row">
+                <span>{{ segment.label }}</span>
+                <div class="progress-track admin-track">
+                  <div
+                    class="progress-bar admin-bar"
+                    :style="{ width: `${(segment.count / maxTimelineCount) * 100}%` }"
+                  ></div>
+                </div>
+                <span class="muted">{{ segment.count }}</span>
+              </div>
+            </div>
+          </article>
+        </div>
+      </article>
     </section>
   </section>
 
