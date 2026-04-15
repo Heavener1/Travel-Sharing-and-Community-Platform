@@ -2,6 +2,7 @@ from django.urls import path
 
 from apps.social.views import (
     AdminDashboardView,
+    AdminBatchSeedView,
     CommentCreateView,
     FavoritePostListView,
     FavoritePostToggleView,
@@ -15,6 +16,7 @@ from apps.social.views import (
 
 urlpatterns = [
     path("admin/dashboard/", AdminDashboardView.as_view(), name="admin-dashboard"),
+    path("admin/batch-seed/", AdminBatchSeedView.as_view(), name="admin-batch-seed"),
     path("notifications/", NotificationListView.as_view(), name="notification-list"),
     path("notifications/read/", NotificationReadView.as_view(), name="notification-read"),
     path("posts/", PostListCreateView.as_view(), name="post-list-create"),
