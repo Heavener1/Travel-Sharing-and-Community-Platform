@@ -67,17 +67,24 @@ const favoriteSummary = computed(() => ({
   destinations: favoriteDestinations.value.length,
 }));
 
+const displayName = computed(
+  () => authStore.user?.display_name || profileForm.nickname || profileForm.first_name || authStore.user?.email || authStore.user?.username || "未登录用户",
+);
+
+const profileStats = computed(() => [
+  { label: "我的帖子", value: dashboard.value.stats.post_count },
+  { label: "我的行程", value: dashboard.value.stats.trip_count },
+  { label: "我的评价", value: dashboard.value.stats.review_count },
+  { label: "收藏景点", value: favoriteSummary.value.destinations },
+  { label: "收藏帖子", value: favoriteSummary.value.posts },
+  { label: "已通过帖子", value: dashboard.value.stats.approved_post_count },
+]);
+
 const sortFavorites = (items, sortType, nameAccessor) => {
   const sorted = [...items];
-  if (sortType === "latest") {
-    sorted.sort((a, b) => new Date(b.favorited_at || 0) - new Date(a.favorited_at || 0));
-  }
-  if (sortType === "earliest") {
-    sorted.sort((a, b) => new Date(a.favorited_at || 0) - new Date(b.favorited_at || 0));
-  }
-  if (sortType === "name") {
-    sorted.sort((a, b) => String(nameAccessor(a)).localeCompare(String(nameAccessor(b)), "zh-CN"));
-  }
+  if (sortType === "latest") sorted.sort((a, b) => new Date(b.favorited_at || 0) - new Date(a.favorited_at || 0));
+  if (sortType === "earliest") sorted.sort((a, b) => new Date(a.favorited_at || 0) - new Date(b.favorited_at || 0));
+  if (sortType === "name") sorted.sort((a, b) => String(nameAccessor(a)).localeCompare(String(nameAccessor(b)), "zh-CN"));
   return sorted;
 };
 
@@ -293,9 +300,7 @@ const removeSelectedFavorites = async (type) => {
 const clearAllFavorites = async (type) => {
   if (type === "posts") {
     await removePostFavorites(favoritePosts.value.map((item) => item.id), authStore.isAuthenticated);
-    if (!authStore.isAuthenticated) {
-      clearFavoriteIds("travel_favorite_posts");
-    }
+    if (!authStore.isAuthenticated) clearFavoriteIds("travel_favorite_posts");
     favoritePosts.value = [];
     selectedFavoritePosts.value = [];
     favoritePostPage.value = 1;
@@ -303,9 +308,7 @@ const clearAllFavorites = async (type) => {
     return;
   }
   await removeDestinationFavorites(favoriteDestinations.value.map((item) => item.id), authStore.isAuthenticated);
-  if (!authStore.isAuthenticated) {
-    clearFavoriteIds("travel_favorite_destinations");
-  }
+  if (!authStore.isAuthenticated) clearFavoriteIds("travel_favorite_destinations");
   favoriteDestinations.value = [];
   selectedFavoriteDestinations.value = [];
   favoriteDestinationPage.value = 1;
@@ -314,79 +317,112 @@ const clearAllFavorites = async (type) => {
 </script>
 
 <template>
-  <section v-if="authStore.user" class="page">
-    <section class="grid-3">
-      <article class="card"><div class="metric">{{ dashboard.stats.post_count }}</div><p class="muted">我发布的帖子</p></article>
-      <article class="card"><div class="metric">{{ dashboard.stats.trip_count }}</div><p class="muted">我的行程方案</p></article>
-      <article class="card"><div class="metric">{{ dashboard.stats.review_count }}</div><p class="muted">我的景点评价</p></article>
+  <section v-if="authStore.user" class="page profile-page">
+    <section class="panel profile-hero-card">
+      <div class="profile-hero">
+        <div class="profile-hero-main">
+          <img v-if="avatarPreview" :src="avatarPreview" alt="avatar" class="profile-avatar profile-avatar-large" />
+          <div>
+            <p class="eyebrow">个人中心</p>
+            <h2>{{ displayName }}</h2>
+            <p class="muted">{{ profileForm.signature || "还没有设置个性签名，补一句会更有记忆点。" }}</p>
+            <div class="tag-row">
+              <span class="tag">{{ profileForm.city || "城市待补充" }}</span>
+              <span class="tag">{{ profileForm.travel_level || "旅行等级待补充" }}</span>
+              <span class="tag">{{ profileForm.preferred_style || "偏好风格待补充" }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="profile-hero-actions">
+          <button class="btn btn-secondary" @click="authStore.logout">退出登录</button>
+          <RouterLink v-if="authStore.user.is_staff" to="/admin-panel" class="btn btn-primary">进入管理后台</RouterLink>
+        </div>
+      </div>
     </section>
 
-    <section class="grid-2 profile-layout">
-      <article class="panel">
-        <p class="eyebrow">个人资料</p>
-        <div class="profile-center">
-          <img v-if="avatarPreview" :src="avatarPreview" alt="avatar" class="profile-avatar" />
-          <div>
-            <h3>{{ authStore.user.display_name || profileForm.nickname || profileForm.first_name || authStore.user.email || authStore.user.username }}</h3>
-            <p class="muted">{{ profileForm.signature || "还没有设置个性签名。" }}</p>
-          </div>
-        </div>
-
-        <p v-if="saveMessage" class="muted">{{ saveMessage }}</p>
-        <p v-if="saveError" class="muted">{{ saveError }}</p>
-
-        <div class="form-grid">
-          <label class="muted">上传头像</label>
-          <input class="input" type="file" accept="image/*" @change="uploadAvatar" />
-          <p v-if="fieldErrors.avatar?.[0]" class="muted">{{ fieldErrors.avatar[0] }}</p>
-
-          <input v-model="profileForm.nickname" class="input" placeholder="昵称" />
-          <input v-model="profileForm.first_name" class="input" placeholder="姓名" />
-          <input :value="authStore.user.email || ''" class="input" placeholder="邮箱" readonly />
-          <p class="muted">邮箱为注册信息，个人中心内不可修改。</p>
-          <input v-model="profileForm.phone" class="input" placeholder="手机号" />
-          <input v-model="profileForm.city" class="input" placeholder="所在城市" />
-          <input v-model="profileForm.occupation" class="input" placeholder="职业" />
-          <input v-model="profileForm.travel_level" class="input" placeholder="旅行等级，例如：旅行新人 / 资深背包客" />
-          <input v-model="profileForm.preferred_style" class="input" placeholder="偏好风格" />
-          <select v-model="profileForm.gender" class="select">
-            <option value="">选择性别</option>
-            <option value="male">男</option>
-            <option value="female">女</option>
-            <option value="other">其他</option>
-          </select>
-          <input v-model="profileForm.birthday" class="input" type="date" />
-          <input v-model="profileForm.homepage" class="input" placeholder="个人主页" />
-          <input v-model="profileForm.signature" class="input" placeholder="个性签名" />
-          <textarea v-model="profileForm.bio" class="textarea" placeholder="个人简介"></textarea>
-          <button class="btn btn-primary" @click="saveProfile">保存资料</button>
-        </div>
+    <section class="grid-3 admin-stat-grid">
+      <article v-for="item in profileStats" :key="item.label" class="card admin-stat-card">
+        <p class="eyebrow">{{ item.label }}</p>
+        <div class="metric">{{ item.value }}</div>
       </article>
+    </section>
 
-      <section class="form-grid">
+    <section class="profile-main-layout">
+      <aside class="profile-sidebar">
         <article class="panel">
-          <div class="split">
-            <div>
-              <p class="eyebrow">账户信息</p>
-              <h3>我的账号概览</h3>
-            </div>
-            <button class="btn btn-secondary" @click="authStore.logout">退出登录</button>
-          </div>
-          <div class="form-grid" style="margin-top: 16px;">
-            <div class="card"><strong>显示名称：</strong>{{ authStore.user.display_name || authStore.user.email || authStore.user.username }}</div>
-            <div class="card"><strong>登录账号：</strong>{{ authStore.user.username }}</div>
-            <div class="card"><strong>账号类型：</strong>{{ authStore.user.is_staff ? "管理员账户" : "普通用户" }}</div>
-            <div class="card"><strong>注册邮箱：</strong>{{ authStore.user.email || "未设置" }}</div>
-            <div class="card"><strong>已通过帖子：</strong>{{ dashboard.stats.approved_post_count }}</div>
-            <div class="card"><strong>待处理帖子：</strong>{{ dashboard.stats.pending_post_count }}</div>
+          <p class="eyebrow">账号信息</p>
+          <div class="form-grid">
+            <div class="card profile-info-card"><strong>显示名称</strong><p class="muted">{{ displayName }}</p></div>
+            <div class="card profile-info-card"><strong>登录账号</strong><p class="muted">{{ authStore.user.username }}</p></div>
+            <div class="card profile-info-card"><strong>注册邮箱</strong><p class="muted">{{ authStore.user.email || "未设置" }}</p></div>
+            <div class="card profile-info-card"><strong>账号类型</strong><p class="muted">{{ authStore.user.is_staff ? "管理员账号" : "普通用户" }}</p></div>
+            <div class="card profile-info-card"><strong>待处理帖子</strong><p class="muted">{{ dashboard.stats.pending_post_count }}</p></div>
           </div>
         </article>
 
         <article class="panel">
+          <p class="eyebrow">个人名片</p>
+          <div class="form-grid">
+            <div class="card profile-info-card"><strong>职业</strong><p class="muted">{{ profileForm.occupation || "待补充" }}</p></div>
+            <div class="card profile-info-card"><strong>手机号</strong><p class="muted">{{ profileForm.phone || "待补充" }}</p></div>
+            <div class="card profile-info-card"><strong>生日</strong><p class="muted">{{ profileForm.birthday || "待补充" }}</p></div>
+            <div class="card profile-info-card"><strong>主页</strong><p class="muted">{{ profileForm.homepage || "待补充" }}</p></div>
+          </div>
+        </article>
+      </aside>
+
+      <div class="profile-content">
+        <section class="panel">
+          <div class="split">
+            <div>
+              <p class="eyebrow">资料编辑</p>
+              <h3>完善你的公开展示信息</h3>
+            </div>
+            <button class="btn btn-primary" @click="saveProfile">保存资料</button>
+          </div>
+
+          <p v-if="saveMessage" class="muted profile-feedback success-text">{{ saveMessage }}</p>
+          <p v-if="saveError" class="muted profile-feedback">{{ saveError }}</p>
+
+          <div class="profile-form-grid" style="margin-top: 18px;">
+            <div class="profile-form-span-2 card avatar-upload-card">
+              <label class="muted">上传头像</label>
+              <div class="profile-avatar-upload-row">
+                <img v-if="avatarPreview" :src="avatarPreview" alt="avatar preview" class="profile-avatar" />
+                <div class="form-grid">
+                  <input class="input" type="file" accept="image/*" @change="uploadAvatar" />
+                  <p v-if="fieldErrors.avatar?.[0]" class="muted">{{ fieldErrors.avatar[0] }}</p>
+                  <p class="muted">建议使用清晰的人像或旅行照片，方便在社区与评论中展示。</p>
+                </div>
+              </div>
+            </div>
+
+            <input v-model="profileForm.nickname" class="input" placeholder="昵称" />
+            <input v-model="profileForm.first_name" class="input" placeholder="姓名" />
+            <input :value="authStore.user.email || ''" class="input" placeholder="邮箱" readonly />
+            <input v-model="profileForm.phone" class="input" placeholder="手机号" />
+            <input v-model="profileForm.city" class="input" placeholder="所在城市" />
+            <input v-model="profileForm.occupation" class="input" placeholder="职业" />
+            <input v-model="profileForm.travel_level" class="input" placeholder="旅行等级" />
+            <input v-model="profileForm.preferred_style" class="input" placeholder="偏好风格" />
+            <select v-model="profileForm.gender" class="select">
+              <option value="">选择性别</option>
+              <option value="male">男</option>
+              <option value="female">女</option>
+              <option value="other">其他</option>
+            </select>
+            <input v-model="profileForm.birthday" class="input" type="date" />
+            <input v-model="profileForm.homepage" class="input profile-form-span-2" placeholder="个人主页" />
+            <input v-model="profileForm.signature" class="input profile-form-span-2" placeholder="个性签名" />
+            <textarea v-model="profileForm.bio" class="textarea profile-form-span-2" placeholder="个人简介"></textarea>
+          </div>
+        </section>
+
+        <section class="panel">
           <div class="split">
             <div>
               <p class="eyebrow">我的收藏</p>
-              <h3>支持搜索、时间排序和批量管理</h3>
+              <h3>支持搜索、排序、分页和批量管理</h3>
             </div>
             <p class="muted">{{ favoriteLoading ? "加载中..." : `景点 ${favoriteSummary.destinations} · 帖子 ${favoriteSummary.posts}` }}</p>
           </div>
@@ -396,14 +432,14 @@ const clearAllFavorites = async (type) => {
               <div class="split">
                 <div>
                   <p class="eyebrow">收藏景点</p>
-                  <h4>按页整理目的地</h4>
+                  <h4>保留以后再去的目的地</h4>
                 </div>
                 <div class="action-row">
                   <button class="btn btn-secondary btn-compact" :disabled="!favoriteDestinations.length" @click="toggleCurrentPageSelection('destinations')">
                     {{ allCurrentDestinationsSelected ? "取消本页全选" : "本页全选" }}
                   </button>
                   <button class="btn btn-secondary btn-compact" :disabled="!selectedFavoriteDestinations.length" @click="removeSelectedFavorites('destinations')">
-                    移除已选
+                    移除选中
                   </button>
                   <button class="btn btn-secondary btn-compact" :disabled="!favoriteDestinations.length" @click="clearAllFavorites('destinations')">
                     清空全部
@@ -411,7 +447,7 @@ const clearAllFavorites = async (type) => {
                 </div>
               </div>
 
-              <div class="filter-bar" style="margin-top: 12px;">
+              <div class="filter-bar">
                 <input v-model="favoriteFilter.destinationKeyword" class="input" placeholder="搜索景点名称、城市、省份" />
                 <select v-model="favoriteFilter.destinationSort" class="select">
                   <option value="latest">按收藏时间：最新</option>
@@ -434,9 +470,7 @@ const clearAllFavorites = async (type) => {
                 <div class="pagination-row">
                   <button class="btn btn-secondary btn-compact" :disabled="favoriteDestinationPage <= 1" @click="favoriteDestinationPage -= 1">上一页</button>
                   <span class="muted">第 {{ favoriteDestinationPage }} / {{ favoriteDestinationPageCount }} 页</span>
-                  <button class="btn btn-secondary btn-compact" :disabled="favoriteDestinationPage >= favoriteDestinationPageCount" @click="favoriteDestinationPage += 1">
-                    下一页
-                  </button>
+                  <button class="btn btn-secondary btn-compact" :disabled="favoriteDestinationPage >= favoriteDestinationPageCount" @click="favoriteDestinationPage += 1">下一页</button>
                 </div>
               </div>
             </div>
@@ -445,14 +479,14 @@ const clearAllFavorites = async (type) => {
               <div class="split">
                 <div>
                   <p class="eyebrow">收藏帖子</p>
-                  <h4>筛选回看的故事</h4>
+                  <h4>随时回看灵感与攻略</h4>
                 </div>
                 <div class="action-row">
                   <button class="btn btn-secondary btn-compact" :disabled="!favoritePosts.length" @click="toggleCurrentPageSelection('posts')">
                     {{ allCurrentPostsSelected ? "取消本页全选" : "本页全选" }}
                   </button>
                   <button class="btn btn-secondary btn-compact" :disabled="!selectedFavoritePosts.length" @click="removeSelectedFavorites('posts')">
-                    移除已选
+                    移除选中
                   </button>
                   <button class="btn btn-secondary btn-compact" :disabled="!favoritePosts.length" @click="clearAllFavorites('posts')">
                     清空全部
@@ -460,7 +494,7 @@ const clearAllFavorites = async (type) => {
                 </div>
               </div>
 
-              <div class="filter-bar" style="margin-top: 12px;">
+              <div class="filter-bar">
                 <input v-model="favoriteFilter.postKeyword" class="input" placeholder="搜索帖子标题、作者、景点" />
                 <select v-model="favoriteFilter.postSort" class="select">
                   <option value="latest">按收藏时间：最新</option>
@@ -488,71 +522,79 @@ const clearAllFavorites = async (type) => {
               </div>
             </div>
           </div>
-        </article>
+        </section>
 
-        <article class="panel">
-          <div class="split">
-            <div><p class="eyebrow">我的帖子</p><h3>最近发布内容</h3></div>
-            <p class="muted">{{ dashboardLoading ? "加载中..." : `共 ${dashboard.stats.post_count} 篇` }}</p>
-          </div>
-          <div class="form-grid" style="margin-top: 16px;">
-            <div v-if="!dashboard.recent_posts.length" class="card muted">你还没有发布帖子，可以去旅行社区分享第一篇故事。</div>
-            <article v-for="post in dashboard.recent_posts" :key="post.id" class="card">
-              <div class="split">
-                <div>
-                  <h4>{{ post.title }}</h4>
-                  <p class="muted">{{ post.destination_name || "未关联景点" }} · {{ post.status }}</p>
-                </div>
-                <span class="pill">{{ post.like_count }} 赞 · {{ post.comment_count }} 评</span>
+        <section class="grid-3 profile-content-grid">
+          <article class="panel">
+            <div class="split">
+              <div>
+                <p class="eyebrow">我的帖子</p>
+                <h3>最近发布内容</h3>
               </div>
-              <p class="summary-two-lines">{{ post.content }}</p>
-            </article>
-          </div>
-        </article>
-
-        <article class="panel">
-          <div class="split">
-            <div><p class="eyebrow">我的行程</p><h3>最近生成方案</h3></div>
-            <p class="muted">{{ dashboardLoading ? "加载中..." : `共 ${dashboard.stats.trip_count} 个` }}</p>
-          </div>
-          <div class="form-grid" style="margin-top: 16px;">
-            <div v-if="!dashboard.recent_trips.length" class="card muted">你还没有生成行程，去智能行程规划页面试试看吧。</div>
-            <article v-for="trip in dashboard.recent_trips" :key="trip.id" class="card">
-              <div class="split">
-                <div>
-                  <h4>{{ trip.title }}</h4>
-                  <p class="muted">{{ trip.departure_city }} → {{ trip.destination_city }} · {{ trip.days }} 天</p>
-                </div>
-                <span class="pill">预算 {{ trip.budget }}</span>
-              </div>
-              <p class="muted">包含 {{ trip.stops.length }} 个景点站点</p>
-            </article>
-          </div>
-        </article>
-
-        <article class="panel">
-          <div class="split">
-            <div><p class="eyebrow">我的评价</p><h3>最近景点打分</h3></div>
-            <p class="muted">{{ dashboardLoading ? "加载中..." : `共 ${dashboard.stats.review_count} 条` }}</p>
-          </div>
-          <div class="form-grid" style="margin-top: 16px;">
-            <div v-if="!dashboard.recent_reviews.length" class="card muted">你还没有评价景点，去景点详情页打个分吧。</div>
-            <article v-for="review in dashboard.recent_reviews" :key="review.id" class="card">
-              <div class="review-header">
-                <div class="comment-line">
-                  <img :src="review.author_avatar" alt="avatar" class="small-avatar mini-avatar" />
+              <p class="muted">{{ dashboardLoading ? "加载中..." : `共 ${dashboard.stats.post_count} 篇` }}</p>
+            </div>
+            <div class="form-grid" style="margin-top: 16px;">
+              <div v-if="!dashboard.recent_posts.length" class="card muted">你还没有发布帖子，可以去旅行社区分享第一篇故事。</div>
+              <article v-for="post in dashboard.recent_posts" :key="post.id" class="card">
+                <div class="split">
                   <div>
-                    <strong>{{ review.display_name || review.nickname || review.username }}</strong>
-                    <p class="muted">{{ review.destination_name || "景点评价" }}</p>
+                    <h4>{{ post.title }}</h4>
+                    <p class="muted">{{ post.destination_name || "未关联景点" }}</p>
                   </div>
+                  <span class="pill">{{ post.like_count }} 赞 · {{ post.comment_count }} 评</span>
                 </div>
-                <span class="pill">{{ review.rating }} 星</span>
+                <p class="summary-two-lines">{{ post.content }}</p>
+              </article>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="split">
+              <div>
+                <p class="eyebrow">我的行程</p>
+                <h3>最近生成方案</h3>
               </div>
-              <p class="summary-two-lines">{{ review.content || "本次仅进行了打分，没有填写文字评价。" }}</p>
-            </article>
-          </div>
-        </article>
-      </section>
+              <p class="muted">{{ dashboardLoading ? "加载中..." : `共 ${dashboard.stats.trip_count} 个` }}</p>
+            </div>
+            <div class="form-grid" style="margin-top: 16px;">
+              <div v-if="!dashboard.recent_trips.length" class="card muted">你还没有生成行程，去智能行程规划页面试试看吧。</div>
+              <article v-for="trip in dashboard.recent_trips" :key="trip.id" class="card">
+                <div class="split">
+                  <div>
+                    <h4>{{ trip.title }}</h4>
+                    <p class="muted">{{ trip.departure_city }} → {{ trip.destination_city }} · {{ trip.days }} 天</p>
+                  </div>
+                  <span class="pill">预算 {{ trip.budget }}</span>
+                </div>
+                <p class="muted">包含 {{ trip.stops.length }} 个景点站点</p>
+              </article>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="split">
+              <div>
+                <p class="eyebrow">我的评价</p>
+                <h3>最近景点评分</h3>
+              </div>
+              <p class="muted">{{ dashboardLoading ? "加载中..." : `共 ${dashboard.stats.review_count} 条` }}</p>
+            </div>
+            <div class="form-grid" style="margin-top: 16px;">
+              <div v-if="!dashboard.recent_reviews.length" class="card muted">你还没有评价景点，去景点详情页打个分吧。</div>
+              <article v-for="review in dashboard.recent_reviews" :key="review.id" class="card">
+                <div class="split">
+                  <div>
+                    <strong>{{ review.destination_name || "景点评价" }}</strong>
+                    <p class="muted">{{ review.display_name || review.nickname || review.username }}</p>
+                  </div>
+                  <span class="pill">{{ review.rating }} 星</span>
+                </div>
+                <p class="summary-two-lines">{{ review.content || "本次仅进行了打分，没有填写文字评价。" }}</p>
+              </article>
+            </div>
+          </article>
+        </section>
+      </div>
     </section>
   </section>
 

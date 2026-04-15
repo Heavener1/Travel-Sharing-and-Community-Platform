@@ -26,5 +26,5 @@ def test_official_key(api_key):
 
 if __name__ == "__main__":
     # 在此处填入你的 API Key
-    my_api_key = "sk-cp-O1jG1f6LrLj-Kvj5K1QlG4lg6Z7S69cmvDl2ytvZ-eJuCw4HhIW5FKyvSAWmvIXzF-QwnQCRToz7HwBtxugf3pomyOLakXs0bOlhS3Q35fQef6knJV7ARWc"
+    my_api_key = "sk-QCRToz7HwBtxugf3pomyOLakXs0bOlhS3Q35fQef6knJV7ARWc"
     test_official_key(my_api_key)
