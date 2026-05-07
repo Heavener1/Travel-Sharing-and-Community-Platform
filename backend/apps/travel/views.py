@@ -1,13 +1,15 @@
 import json
+import logging
 from collections import Counter, defaultdict
 
-from django.db.models import Avg, Q
+from django.db.models import Avg
 from django.http import StreamingHttpResponse
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.ai.services import AIServiceError, chat_completion_stream, list_providers
+from apps.common.utils import build_user_preference_profile, extract_tags, sse_event, track_destination_action
 from apps.social.models import UserAction
 from apps.travel.models import Destination, DestinationReview, FavoriteDestination, Hotel
 from apps.travel.serializers import (
@@ -20,18 +22,11 @@ from apps.travel.serializers import (
 )
 from apps.travel.services import search_destination_ids, upload_fileobj
 
-
-def sse_event(event, data):
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+logger = logging.getLogger("apps.travel")
 
 
 def get_destination_queryset():
     return Destination.objects.prefetch_related("hotels", "reviews", "reviews__user__profile", "favorites").all()
-
-
-def track_destination_action(user, destination, action_type):
-    if user.is_authenticated and destination:
-        UserAction.objects.create(user=user, destination=destination, action_type=action_type)
 
 
 def update_destination_score(destination):
@@ -41,44 +36,21 @@ def update_destination_score(destination):
         destination.save(update_fields=["score"])
 
 
-def filter_destinations_by_keyword(queryset, keyword):
-    keyword_lower = keyword.lower()
-    items = list(queryset)
-    return [
-        item
-        for item in items
-        if keyword_lower in item.name.lower()
-        or keyword_lower in item.city.lower()
-        or keyword_lower in item.province.lower()
-        or keyword_lower in item.tags.lower()
-        or keyword_lower in item.summary.lower()
-    ]
-
-
-def get_es_results(keyword, hidden_gem=False, limit=6):
-    queryset = get_destination_queryset()
+def search_es(keyword, hidden_gem=False, limit=20):
+    """ES 全文检索：返回按 ES 评分排序的 Destination 对象列表。ES 暂不可用时返回空列表。"""
     try:
         ids = search_destination_ids(keyword)
         if not ids:
             return []
         preserved = {pk: index for index, pk in enumerate(ids)}
-        items = sorted(
-            queryset.filter(id__in=ids),
-            key=lambda item: preserved.get(item.id, 9999),
-        )
+        queryset = get_destination_queryset().filter(id__in=ids)
+        items = sorted(queryset, key=lambda item: preserved.get(item.id, 9999))
         if hidden_gem:
             items = [item for item in items if item.is_hidden_gem]
         return items[:limit]
     except Exception:
+        logger.warning("ES search failed for keyword=%s", keyword, exc_info=True)
         return []
-
-
-def get_db_results(keyword, hidden_gem=False, limit=6):
-    queryset = get_destination_queryset()
-    items = filter_destinations_by_keyword(queryset, keyword)
-    if hidden_gem:
-        items = [item for item in items if item.is_hidden_gem]
-    return items[:limit]
 
 
 def pick_ai_provider():
@@ -87,56 +59,6 @@ def pick_ai_provider():
         if provider_info.get(provider, {}).get("configured"):
             return provider
     return None
-
-
-def extract_tags(raw_text):
-    return [tag.strip() for tag in (raw_text or "").split(",") if tag.strip()]
-
-
-def build_user_preference_profile(user):
-    profile = {
-        "tag_counter": Counter(),
-        "city_counter": Counter(),
-        "province_counter": Counter(),
-        "destination_counter": Counter(),
-    }
-    if not user.is_authenticated:
-        return profile
-
-    action_weights = {
-        "view": 1,
-        "like": 3,
-        "plan": 4,
-        "review": 5,
-        "favorite": 6,
-        "post": 4,
-    }
-
-    actions = UserAction.objects.filter(user=user).select_related("destination")
-    favorites = FavoriteDestination.objects.filter(user=user).select_related("destination")
-    reviews = DestinationReview.objects.filter(user=user).select_related("destination")
-
-    def absorb_destination(destination, weight):
-        if not destination:
-            return
-        profile["destination_counter"][destination.id] += weight
-        if destination.city:
-            profile["city_counter"][destination.city] += weight
-        if destination.province:
-            profile["province_counter"][destination.province] += weight
-        for tag in extract_tags(destination.tags):
-            profile["tag_counter"][tag] += weight
-
-    for action in actions:
-        absorb_destination(action.destination, action_weights.get(action.action_type, 1))
-
-    for favorite in favorites:
-        absorb_destination(favorite.destination, 7)
-
-    for review in reviews:
-        absorb_destination(review.destination, 6 + int(review.rating))
-
-    return profile
 
 
 def build_ai_search_prompt(keyword, source_items):
@@ -207,7 +129,7 @@ def personalized_destination_queryset(user):
     for review in reviews:
         weight_map[review.destination_id] += 6 + float(review.rating)
 
-    items = list(base_qs)
+    items = list(base_qs[:500])
     scored = []
     for item in items:
         score = weight_map.get(item.id, 0) + float(item.score)
@@ -229,22 +151,21 @@ class DestinationListView(generics.ListCreateAPIView):
         return [permissions.AllowAny()]
 
     def get_queryset(self):
-        queryset = get_destination_queryset()
-        keyword = self.request.query_params.get("q")
-        search_mode = self.request.query_params.get("search_mode")
-        hidden_gem = self.request.query_params.get("hidden_gem")
+        keyword = (self.request.query_params.get("q") or "").strip()
+        hidden_gem = self.request.query_params.get("hidden_gem") == "true"
+
         if keyword:
-            if search_mode == "es":
-                items = get_es_results(keyword, hidden_gem == "true", limit=20)
-                if items:
-                    return items
-            queryset = filter_destinations_by_keyword(queryset, keyword)
-        if hidden_gem == "true":
-            if isinstance(queryset, list):
-                queryset = [item for item in queryset if item.is_hidden_gem]
-            else:
-                queryset = queryset.filter(is_hidden_gem=True)
-        return queryset
+            items = search_es(keyword, hidden_gem=hidden_gem, limit=20)
+            if items:
+                return items
+            return Destination.objects.none()
+
+        queryset = get_destination_queryset()
+        if hidden_gem:
+            queryset = queryset.filter(is_hidden_gem=True)
+        if self.request.query_params.get("ordering"):
+            return queryset
+        return queryset.order_by("-is_hidden_gem", "-score")
 
     def get_serializer_class(self):
         if self.request.method == "POST":
@@ -262,44 +183,46 @@ class SmartSearchView(APIView):
     def get(self, request):
         keyword = (request.query_params.get("q") or "").strip()
         hidden_gem = request.query_params.get("hidden_gem") == "true"
+
         if not keyword:
-            featured = personalized_destination_queryset(request.user)[:8] if request.user.is_authenticated else get_destination_queryset().order_by("-is_hidden_gem", "-score")[:8]
+            featured = (
+                personalized_destination_queryset(request.user)[:8]
+                if request.user.is_authenticated
+                else get_destination_queryset().order_by("-is_hidden_gem", "-score")[:8]
+            )
             return Response(
                 {
                     "keyword": "",
-                    "es_results": [],
-                    "db_results": [],
-                    "ai_summary": "输入关键词后，可同时检索 ElasticSearch、MySQL 和 AI 智能推荐结果。",
+                    "results": [],
+                    "ai_summary": "",
                     "ai_provider": "",
                     "ai_error": "",
                     "featured_results": DestinationSerializer(featured, many=True, context={"request": request}).data,
                 }
             )
 
-        es_items = get_es_results(keyword, hidden_gem=hidden_gem, limit=6)
-        db_items = get_db_results(keyword, hidden_gem=hidden_gem, limit=6)
+        items = search_es(keyword, hidden_gem=hidden_gem, limit=10)
         provider = pick_ai_provider()
         ai_summary = ""
         ai_error = ""
-        if provider:
+        if provider and items:
             try:
                 ai_summary = "".join(
                     chat_completion_stream(
                         provider=provider,
-                        prompt=build_ai_search_prompt(keyword, es_items + db_items),
+                        prompt=build_ai_search_prompt(keyword, items),
                         temperature=0.4,
                     )
                 )
             except AIServiceError as exc:
                 ai_error = str(exc)
-        else:
-            ai_error = "AI 搜索暂未配置，当前仅展示 ES 与数据库结果。"
+        elif not provider:
+            ai_error = "AI 服务暂未配置。"
 
         return Response(
             {
                 "keyword": keyword,
-                "es_results": DestinationSerializer(es_items, many=True, context={"request": request}).data,
-                "db_results": DestinationSerializer(db_items, many=True, context={"request": request}).data,
+                "results": DestinationSerializer(items, many=True, context={"request": request}).data,
                 "ai_summary": ai_summary,
                 "ai_provider": provider or "",
                 "ai_error": ai_error,
@@ -315,7 +238,11 @@ class SmartSearchStreamView(APIView):
 
         def generate():
             if not keyword:
-                featured = personalized_destination_queryset(request.user)[:8] if request.user.is_authenticated else get_destination_queryset().order_by("-is_hidden_gem", "-score")[:8]
+                featured = (
+                    personalized_destination_queryset(request.user)[:8]
+                    if request.user.is_authenticated
+                    else get_destination_queryset().order_by("-is_hidden_gem", "-score")[:8]
+                )
                 yield sse_event(
                     "featured_results",
                     {"items": DestinationSerializer(featured, many=True, context={"request": request}).data},
@@ -325,34 +252,26 @@ class SmartSearchStreamView(APIView):
                 return
 
             yield sse_event("progress", {"progress": 10, "message": "正在检索 ElasticSearch"})
-            es_items = get_es_results(keyword, hidden_gem=hidden_gem, limit=6)
-            yield sse_event("es_results", {"items": DestinationSerializer(es_items, many=True, context={"request": request}).data})
-
-            yield sse_event("progress", {"progress": 35, "message": "正在检索数据库"})
-            db_items = get_db_results(keyword, hidden_gem=hidden_gem, limit=6)
-            yield sse_event("db_results", {"items": DestinationSerializer(db_items, many=True, context={"request": request}).data})
+            items = search_es(keyword, hidden_gem=hidden_gem, limit=10)
+            yield sse_event("results", {"items": DestinationSerializer(items, many=True, context={"request": request}).data})
 
             provider = pick_ai_provider()
             if not provider:
-                yield sse_event("error", {"detail": "AI 搜索暂未配置，当前仅展示 ES 与数据库结果。"})
-                yield sse_event("progress", {"progress": 100, "message": "搜索完成"})
+                yield sse_event("progress", {"progress": 100, "message": "搜索完成（AI 未配置）"})
                 yield sse_event("done", {"content": ""})
                 return
 
-            combined = []
-            seen_ids = set()
-            for item in es_items + db_items:
-                if item.id in seen_ids:
-                    continue
-                seen_ids.add(item.id)
-                combined.append(item)
+            if not items:
+                yield sse_event("progress", {"progress": 100, "message": "未找到匹配的景点"})
+                yield sse_event("done", {"content": ""})
+                return
 
             yield sse_event("provider", {"provider": provider})
             yield sse_event("progress", {"progress": 55, "message": "AI 正在生成智能导览"})
             content = ""
             chunk_count = 0
             try:
-                for chunk in chat_completion_stream(provider=provider, prompt=build_ai_search_prompt(keyword, combined), temperature=0.4):
+                for chunk in chat_completion_stream(provider=provider, prompt=build_ai_search_prompt(keyword, items), temperature=0.4):
                     chunk_count += 1
                     content += chunk
                     yield sse_event("ai_content", {"chunk": chunk, "content": content})
@@ -361,7 +280,7 @@ class SmartSearchStreamView(APIView):
                 yield sse_event("done", {"content": content})
             except AIServiceError as exc:
                 yield sse_event("error", {"detail": str(exc)})
-                yield sse_event("progress", {"progress": 100, "message": "已返回基础检索结果"})
+                yield sse_event("progress", {"progress": 100, "message": "已返回检索结果"})
                 yield sse_event("done", {"content": content})
 
         response = StreamingHttpResponse(generate(), content_type="text/event-stream")
@@ -423,13 +342,15 @@ class FavoriteDestinationToggleView(APIView):
 
 class DestinationRelatedView(APIView):
     permission_classes = [permissions.AllowAny]
+    MAX_CANDIDATES = 200
+    MAX_POSTS = 200
 
     def get(self, request, pk):
         current_destination = generics.get_object_or_404(get_destination_queryset(), pk=pk)
         current_tags = set(extract_tags(current_destination.tags))
         profile = build_user_preference_profile(request.user)
 
-        candidate_destinations = get_destination_queryset().exclude(pk=current_destination.pk)
+        candidate_destinations = get_destination_queryset().exclude(pk=current_destination.pk)[: self.MAX_CANDIDATES]
         scored_destinations = []
         for item in candidate_destinations:
             item_tags = set(extract_tags(item.tags))
@@ -465,7 +386,7 @@ class DestinationRelatedView(APIView):
         for item in (
             Post.objects.filter(status="approved")
             .select_related("author", "destination")
-            .prefetch_related("comments", "likes", "favorites")
+            .prefetch_related("comments", "likes", "favorites")[: self.MAX_POSTS]
         ):
             item_tags = set(extract_tags(item.tags))
             shared_tags = len(current_tags & item_tags)

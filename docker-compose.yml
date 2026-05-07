@@ -1,0 +1,65 @@
+services:
+  elasticsearch:
+    build:
+      context: .
+      dockerfile: docker/elasticsearch/Dockerfile
+    image: travel-sharing-elasticsearch:8.17.2
+    container_name: travel-sharing-elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.enrollment.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "${ES_HTTP_PORT:-9200}:9200"
+      - "${ES_TRANSPORT_PORT:-9300}:9300"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200 >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: travel-sharing-backend:latest
+    container_name: travel-sharing-backend
+    env_file:
+      - backend/.env
+    environment:
+      DJANGO_DB_ENGINE: mysql
+      DJANGO_DB_NAME: travel_sharing_platform
+      DJANGO_ALLOWED_HOSTS: "127.0.0.1,localhost,backend,0.0.0.0"
+      DJANGO_CORS_ALLOW_ALL_ORIGINS: "True"
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      RUN_MIGRATIONS: "true"
+      RUN_INIT_EXTERNAL: "true"
+      RUN_SEED_DATA: "false"
+      ENSURE_ADMIN: "true"
+      DJANGO_ADMIN_USERNAME: admin
+      DJANGO_ADMIN_PASSWORD: admin123456
+      DJANGO_ADMIN_EMAIL: admin@example.com
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+    image: travel-sharing-frontend:latest
+    container_name: travel-sharing-frontend
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      - backend
+
+volumes:
+  es-data:

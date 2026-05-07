@@ -40,7 +40,6 @@ def list_providers():
 
 def _build_payload(provider, prompt, model=None, system_prompt=None, temperature=0.7, stream=False):
     config = PROVIDER_OPTIONS[provider]
-    provider_temperature = 1 if provider == "kimi" else temperature
     return {
         "model": model or config["default_model"],
         "messages": [
@@ -50,7 +49,7 @@ def _build_payload(provider, prompt, model=None, system_prompt=None, temperature
             },
             {"role": "user", "content": prompt},
         ],
-        "temperature": provider_temperature,
+        "temperature": temperature,
         "stream": stream,
     }
 

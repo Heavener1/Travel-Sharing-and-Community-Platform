@@ -5,9 +5,9 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.utils import track_destination_action
 from apps.planner.models import TripPlan, TripStop
 from apps.planner.serializers import TripPlanSerializer
-from apps.social.models import UserAction
 from apps.travel.models import Destination
 
 
@@ -24,6 +24,7 @@ class TripPlanListCreateView(generics.ListCreateAPIView):
 
 class TripGeneratorView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    MAX_CANDIDATES = 100
 
     def post(self, request):
         departure_city = (request.data.get("departure_city") or "").strip()
@@ -53,7 +54,8 @@ class TripGeneratorView(APIView):
             if preferred_queryset.exists():
                 queryset = preferred_queryset
 
-        selected = list(queryset.order_by("-is_hidden_gem", "-score")[: max(days, 3)])
+        queryset = queryset.order_by("-is_hidden_gem", "-score")[: self.MAX_CANDIDATES]
+        selected = list(queryset[: max(days, 3)])
         if not selected:
             return Response(
                 {"detail": f"暂未找到和“{destination_city}”相关的景点，请换个目的地试试。"},
@@ -79,7 +81,7 @@ class TripGeneratorView(APIView):
                 sequence=1,
                 note=f"建议预留 {destination.suggested_days} 天深度体验。",
             )
-            UserAction.objects.create(user=request.user, destination=destination, action_type="plan")
+            track_destination_action(request.user, destination, "plan")
             itinerary[index].append(
                 {
                     "destination_id": destination.id,

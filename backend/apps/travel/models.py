@@ -6,11 +6,11 @@ from apps.users.utils import get_user_display_name
 
 class Destination(models.Model):
     name = models.CharField(max_length=120)
-    city = models.CharField(max_length=80)
+    city = models.CharField(max_length=80, db_index=True)
     province = models.CharField(max_length=80)
     cover = models.URLField(blank=True)
     summary = models.TextField()
-    tags = models.CharField(max_length=200, blank=True)
+    tags = models.CharField(max_length=200, blank=True, db_index=True)
     budget_level = models.CharField(max_length=20, default="中等")
     best_season = models.CharField(max_length=50, blank=True)
     score = models.DecimalField(max_digits=3, decimal_places=1, default=4.5)

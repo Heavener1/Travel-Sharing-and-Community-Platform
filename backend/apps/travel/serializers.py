@@ -1,6 +1,5 @@
 from urllib.parse import quote
 
-from django.db.models import Avg
 from rest_framework import serializers
 
 from apps.travel.models import Destination, DestinationReview, FavoriteDestination, Hotel
@@ -84,17 +83,25 @@ class BaseDestinationSerializer(serializers.ModelSerializer):
         return resolve_media_url(obj.cover) or build_default_destination_cover(obj.name)
 
     def get_review_count(self, obj):
-        return obj.reviews.count() if hasattr(obj, "reviews") else 0
+        if hasattr(obj, "reviews"):
+            return len(obj.reviews.all())
+        return 0
 
     def get_average_rating(self, obj):
-        average = obj.reviews.aggregate(avg=Avg("rating")).get("avg") if hasattr(obj, "reviews") else None
-        return round(float(average), 1) if average is not None else float(obj.score)
+        if hasattr(obj, "reviews"):
+            reviews = obj.reviews.all()
+            ratings = [r.rating for r in reviews if r.rating]
+            if ratings:
+                return round(sum(ratings) / len(ratings), 1)
+        return float(obj.score)
 
     def get_current_user_favorited(self, obj):
         request = self.context.get("request")
         user = getattr(request, "user", None)
         if not user or not user.is_authenticated:
             return False
+        if hasattr(obj, "favorites"):
+            return any(fav.user_id == user.id for fav in obj.favorites.all())
         return obj.favorites.filter(user=user).exists()
 
 

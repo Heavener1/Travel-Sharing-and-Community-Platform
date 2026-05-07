@@ -8,6 +8,39 @@ const http = axios.create({
   timeout: 20000,
 });
 
+const isStandardEnvelope = (payload) =>
+  payload &&
+  typeof payload === "object" &&
+  Object.prototype.hasOwnProperty.call(payload, "status_code") &&
+  Object.prototype.hasOwnProperty.call(payload, "data") &&
+  Object.prototype.hasOwnProperty.call(payload, "message");
+
+const unwrapEnvelope = (response) => {
+  if (isStandardEnvelope(response.data)) {
+    response.api = {
+      statusCode: response.data.status_code,
+      message: response.data.message,
+    };
+    response.data = response.data.data;
+  }
+  return response;
+};
+
+const getErrorMessage = (error) => {
+  const payload = error?.response?.data;
+  if (error?.response?.api?.message) {
+    return error.response.api.message;
+  }
+  if (isStandardEnvelope(payload)) {
+    return payload.message || payload.data?.detail || "请求失败，请稍后再试。";
+  }
+  return (
+    payload?.detail ||
+    payload?.message ||
+    (error.code === "ECONNABORTED" ? "请求超时，请稍后重试。" : "请求失败，请稍后再试。")
+  );
+};
+
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem("travel_access_token");
   const uiStore = useUiStore(pinia);
@@ -28,7 +61,7 @@ http.interceptors.response.use(
     if (!response.config.meta?.silentLoading) {
       uiStore.finishRequest();
     }
-    return response;
+    return unwrapEnvelope(response);
   },
   async (error) => {
     const uiStore = useUiStore(pinia);
@@ -48,12 +81,17 @@ http.interceptors.response.use(
       return http(config);
     }
 
+    if (isStandardEnvelope(error?.response?.data)) {
+      const envelope = error.response.data;
+      error.response.api = {
+        statusCode: envelope.status_code,
+        message: envelope.message,
+      };
+      error.response.data = envelope.data;
+    }
+
     if (!config.meta?.silentError) {
-      const message =
-        error?.response?.data?.detail ||
-        error?.response?.data?.message ||
-        (error.code === "ECONNABORTED" ? "请求超时，请稍后重试。" : "请求失败，请稍后再试。");
-      uiStore.pushToast(message, "error");
+      uiStore.pushToast(getErrorMessage(error), "error");
     }
 
     return Promise.reject(error);

@@ -1,5 +1,5 @@
 import random
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import timedelta
 
 from django.contrib.auth.models import User
@@ -10,6 +10,7 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.utils import build_user_preference_profile, extract_tags, safe_int, track_destination_action
 from apps.social.models import FavoritePost, Notification, Post, PostComment, PostLike, UserAction
 from apps.social.serializers import (
     FavoritePostSerializer,
@@ -99,67 +100,6 @@ POST_TAG_LIBRARY = [
 ]
 
 
-def _safe_int(value, default):
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def extract_tags(raw_text):
-    return [tag.strip() for tag in (raw_text or "").split(",") if tag.strip()]
-
-
-def build_user_preference_profile(user):
-    profile = {
-        "tag_counter": Counter(),
-        "city_counter": Counter(),
-        "province_counter": Counter(),
-        "destination_counter": Counter(),
-    }
-    if not user.is_authenticated:
-        return profile
-
-    action_weights = {
-        "view": 1,
-        "like": 3,
-        "plan": 4,
-        "review": 5,
-        "favorite": 6,
-        "post": 4,
-    }
-
-    actions = UserAction.objects.filter(user=user).select_related("destination")
-    favorites = FavoritePost.objects.filter(user=user).select_related("post__destination")
-    liked_posts = PostLike.objects.filter(user=user).select_related("post__destination")
-    reviews = DestinationReview.objects.filter(user=user).select_related("destination")
-
-    def absorb_destination(destination, weight):
-        if not destination:
-            return
-        profile["destination_counter"][destination.id] += weight
-        if destination.city:
-            profile["city_counter"][destination.city] += weight
-        if destination.province:
-            profile["province_counter"][destination.province] += weight
-        for tag in extract_tags(destination.tags):
-            profile["tag_counter"][tag] += weight
-
-    for action in actions:
-        absorb_destination(action.destination, action_weights.get(action.action_type, 1))
-
-    for favorite in favorites:
-        absorb_destination(favorite.post.destination, 5)
-
-    for like in liked_posts:
-        absorb_destination(like.post.destination, 3)
-
-    for review in reviews:
-        absorb_destination(review.destination, 6 + int(review.rating))
-
-    return profile
-
-
 def create_notification(*, recipient, actor, notification_type, message, post=None, comment=None):
     if not recipient or not actor or recipient == actor:
         return None
@@ -171,11 +111,6 @@ def create_notification(*, recipient, actor, notification_type, message, post=No
         post=post,
         comment=comment,
     )
-
-
-def track_destination_action(user, destination, action_type):
-    if user.is_authenticated and destination:
-        UserAction.objects.create(user=user, destination=destination, action_type=action_type)
 
 
 class PostListCreateView(generics.ListCreateAPIView):
@@ -200,7 +135,7 @@ class PostListCreateView(generics.ListCreateAPIView):
         return PostListSerializer
 
     def perform_create(self, serializer):
-        post = serializer.save(author=self.request.user, status="approved")
+        post = serializer.save(author=self.request.user, status="pending")
         track_destination_action(self.request.user, post.destination, "post")
 
     def create(self, request, *args, **kwargs):
@@ -510,10 +445,10 @@ class AdminBatchSeedView(APIView):
     @transaction.atomic
     def post(self, request):
         task_type = request.data.get("task_type")
-        count = max(1, min(_safe_int(request.data.get("count"), 10), 200))
+        count = max(1, min(safe_int(request.data.get("count"), 10), 200))
 
         if task_type == "accounts":
-            start_number = max(1000, _safe_int(request.data.get("start_number"), 1000))
+            start_number = max(1000, safe_int(request.data.get("start_number"), 1000))
             created_users = []
             current = start_number
             while len(created_users) < count:

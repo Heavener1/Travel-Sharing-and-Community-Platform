@@ -1,14 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+*.log
+
+# Virtual environment
 .venv/
+venv/
+env/
+
+# Django
 backend/db.sqlite3
 backend/media/
+backend/staticfiles/
+backend/logs/*.log
+!backend/logs/.gitkeep
+
+# Environment (contains secrets)
+**/.env
+!.env.example
+
+# Frontend
 frontend/dist/
 frontend/node_modules/
-.env
 
+# Sensitive project files
 大模型信息*
 开题报告*
 中间件信息*
 
 Materials
-
 test.py
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml

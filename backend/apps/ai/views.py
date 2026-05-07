@@ -1,5 +1,3 @@
-import json
-
 from django.db.models import Q
 from django.http import StreamingHttpResponse
 from rest_framework import permissions, status
@@ -7,13 +5,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.ai.services import AIServiceError, chat_completion, chat_completion_stream, list_providers
+from apps.common.utils import sse_event
 from apps.social.models import Post
 from apps.travel.models import Destination
 from apps.users.utils import get_user_display_name
-
-
-def sse_event(event, data):
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
 def stream_text_response(provider, model, prompt, temperature):

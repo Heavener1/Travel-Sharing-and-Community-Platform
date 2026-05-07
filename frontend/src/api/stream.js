@@ -42,7 +42,7 @@ export const streamRequest = async ({ path, method = "POST", body, onEvent }) =>
     let detail = "流式请求失败。";
     try {
       const data = await response.json();
-      detail = data.detail || detail;
+      detail = data.message || data.data?.detail || data.detail || detail;
     } catch {
       detail = await response.text();
     }
