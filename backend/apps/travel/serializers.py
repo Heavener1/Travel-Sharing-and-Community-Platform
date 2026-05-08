@@ -33,7 +33,11 @@ def build_default_destination_cover(name):
 
 def get_rating_distribution(destination):
     counts = {star: 0 for star in range(1, 6)}
-    for review in destination.reviews.all():
+    if hasattr(destination, "_prefetched_objects_cache") and "reviews" in destination._prefetched_objects_cache:
+        reviews = destination._prefetched_objects_cache["reviews"]
+    else:
+        reviews = list(destination.reviews.all())
+    for review in reviews:
         counts[review.rating] = counts.get(review.rating, 0) + 1
     return [{"star": star, "count": counts[star]} for star in range(5, 0, -1)]
 
@@ -83,16 +87,18 @@ class BaseDestinationSerializer(serializers.ModelSerializer):
         return resolve_media_url(obj.cover) or build_default_destination_cover(obj.name)
 
     def get_review_count(self, obj):
-        if hasattr(obj, "reviews"):
-            return len(obj.reviews.all())
+        if hasattr(obj, "_prefetched_objects_cache") and "reviews" in obj._prefetched_objects_cache:
+            return len(obj._prefetched_objects_cache["reviews"])
         return 0
 
     def get_average_rating(self, obj):
-        if hasattr(obj, "reviews"):
-            reviews = obj.reviews.all()
-            ratings = [r.rating for r in reviews if r.rating]
-            if ratings:
-                return round(sum(ratings) / len(ratings), 1)
+        ratings = None
+        if hasattr(obj, "_prefetched_objects_cache") and "reviews" in obj._prefetched_objects_cache:
+            ratings = [r.rating for r in obj._prefetched_objects_cache["reviews"] if r.rating]
+        if ratings is None:
+            ratings = list(obj.reviews.values_list("rating", flat=True))
+        if ratings:
+            return round(sum(ratings) / len(ratings), 1)
         return float(obj.score)
 
     def get_current_user_favorited(self, obj):
@@ -100,8 +106,8 @@ class BaseDestinationSerializer(serializers.ModelSerializer):
         user = getattr(request, "user", None)
         if not user or not user.is_authenticated:
             return False
-        if hasattr(obj, "favorites"):
-            return any(fav.user_id == user.id for fav in obj.favorites.all())
+        if hasattr(obj, "_prefetched_objects_cache") and "favorites" in obj._prefetched_objects_cache:
+            return any(fav.user_id == user.id for fav in obj._prefetched_objects_cache["favorites"])
         return obj.favorites.filter(user=user).exists()
 
 
@@ -186,7 +192,11 @@ class DestinationDetailSerializer(DestinationSerializer):
         request = self.context.get("request")
         if not request or not request.user.is_authenticated:
             return None
-        review = next((item for item in obj.reviews.all() if item.user_id == request.user.id), None)
+        if hasattr(obj, "_prefetched_objects_cache") and "reviews" in obj._prefetched_objects_cache:
+            all_reviews = obj._prefetched_objects_cache["reviews"]
+        else:
+            all_reviews = list(obj.reviews.all())
+        review = next((item for item in all_reviews if item.user_id == request.user.id), None)
         return DestinationReviewSerializer(review).data if review else None
 
 

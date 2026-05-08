@@ -4,33 +4,48 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.ai.services import AIServiceError, chat_completion, chat_completion_stream, list_providers
+from apps.ai.chains import build_destination_analysis_chain, build_travel_assistant_chain
+from apps.ai.langchain_service import (
+    LangChainServiceError,
+    destination_analysis_stream,
+    post_polish,
+    post_polish_stream,
+    post_summary_stream,
+    scenic_qa,
+    scenic_qa_stream,
+    travel_assistant,
+    travel_assistant_stream,
+)
+from apps.ai.services import list_providers
 from apps.common.utils import sse_event
 from apps.social.models import Post
 from apps.travel.models import Destination
 from apps.users.utils import get_user_display_name
 
 
-def stream_text_response(provider, model, prompt, temperature):
+# ──────────────────────────────────────────────
+# 通用流式输出辅助
+# ──────────────────────────────────────────────
+
+def _stream_langchain_response(stream_iterator, progress_message: str = "AI 正在生成内容"):
+    """将 LangChain 流式输出包装为 SSE 事件流。"""
+
     def generate():
         content = ""
         chunk_count = 0
         yield sse_event("progress", {"progress": 10, "message": "已连接模型，开始生成"})
         try:
-            for chunk in chat_completion_stream(provider=provider, model=model, prompt=prompt, temperature=temperature):
+            for chunk in stream_iterator:
                 chunk_count += 1
                 content += chunk
                 yield sse_event("content", {"chunk": chunk, "content": content})
                 yield sse_event(
                     "progress",
-                    {
-                        "progress": min(15 + chunk_count * 4, 95),
-                        "message": "AI 正在生成内容",
-                    },
+                    {"progress": min(15 + chunk_count * 4, 95), "message": progress_message},
                 )
             yield sse_event("progress", {"progress": 100, "message": "生成完成"})
             yield sse_event("done", {"content": content})
-        except AIServiceError as exc:
+        except LangChainServiceError as exc:
             yield sse_event("error", {"detail": str(exc)})
 
     response = StreamingHttpResponse(generate(), content_type="text/event-stream")
@@ -38,6 +53,10 @@ def stream_text_response(provider, model, prompt, temperature):
     response["X-Accel-Buffering"] = "no"
     return response
 
+
+# ──────────────────────────────────────────────
+# 景点上下文构建
+# ──────────────────────────────────────────────
 
 def build_destination_context(destination):
     hotels = list(destination.hotels.all()[:3])
@@ -63,7 +82,11 @@ def build_destination_context(destination):
 def build_destination_analysis_context(destination):
     reviews = list(destination.reviews.select_related("user__profile").all()[:10])
     rating_counts = {star: 0 for star in range(1, 6)}
-    for review in destination.reviews.all():
+    if hasattr(destination, "_prefetched_objects_cache") and "reviews" in destination._prefetched_objects_cache:
+        all_reviews = destination._prefetched_objects_cache["reviews"]
+    else:
+        all_reviews = list(destination.reviews.all())
+    for review in all_reviews:
         rating_counts[review.rating] += 1
     review_lines = [
         f"{get_user_display_name(review.user)}：{review.rating}星，评价：{review.content or '仅评分'}"
@@ -71,7 +94,8 @@ def build_destination_analysis_context(destination):
     ]
     return (
         f"{build_destination_context(destination)}"
-        f"评分分布：5星{rating_counts[5]}条，4星{rating_counts[4]}条，3星{rating_counts[3]}条，2星{rating_counts[2]}条，1星{rating_counts[1]}条\n"
+        f"评分分布：5星{rating_counts[5]}条，4星{rating_counts[4]}条，3星{rating_counts[3]}条，"
+        f"2星{rating_counts[2]}条，1星{rating_counts[1]}条\n"
         f"用户评价样本：{'；'.join(review_lines) if review_lines else '暂无用户评价'}\n"
     )
 
@@ -94,6 +118,10 @@ def find_destination(destination_name):
     return queryset.filter(fuzzy_query).order_by("-score").first()
 
 
+# ──────────────────────────────────────────────
+# 视图
+# ──────────────────────────────────────────────
+
 class ProviderListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -101,103 +129,240 @@ class ProviderListView(APIView):
         return Response(list_providers())
 
 
-class TravelAssistantView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+# ═══════════════════════════════════════════════
+# 工作流 1：旅行助手
+# ═══════════════════════════════════════════════
 
-    @staticmethod
-    def build_prompt(request):
-        return (
-            "请基于以下旅行需求，生成一份适合旅游分享平台展示的智能旅行建议。"
-            "请输出 3 个部分：1. 总体路线建议 2. 每日重点安排 3. 预算与避坑提醒。\n"
-            f"出发地：{request.data.get('departure_city', '')}\n"
-            f"目的地：{request.data.get('destination_city', '')}\n"
-            f"天数：{request.data.get('days', '')}\n"
-            f"预算：{request.data.get('budget', '')}\n"
-            f"偏好：{request.data.get('preferences', '')}\n"
-            f"当前系统行程草案：{request.data.get('draft_itinerary', '')}\n"
-        )
+class TravelAssistantView(APIView):
+    """LangChain 工作流：旅行助手"""
+
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         provider = request.data.get("provider", "qwen")
         model = request.data.get("model")
         try:
-            content = chat_completion(provider=provider, model=model, prompt=self.build_prompt(request), temperature=0.6)
+            content = travel_assistant(
+                provider=provider,
+                departure_city=request.data.get("departure_city", ""),
+                destination_city=request.data.get("destination_city", ""),
+                days=request.data.get("days", ""),
+                budget=request.data.get("budget", ""),
+                preferences=request.data.get("preferences", ""),
+                draft_itinerary=request.data.get("draft_itinerary", ""),
+                model=model,
+            )
             return Response({"content": content})
-        except AIServiceError as exc:
+        except LangChainServiceError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class TravelAssistantStreamView(APIView):
+    """LangChain 工作流：旅行助手（流式）"""
+
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         provider = request.data.get("provider", "qwen")
         model = request.data.get("model")
-        prompt = TravelAssistantView.build_prompt(request)
-        return stream_text_response(provider=provider, model=model, prompt=prompt, temperature=0.6)
+        stream = travel_assistant_stream(
+            provider=provider,
+            departure_city=request.data.get("departure_city", ""),
+            destination_city=request.data.get("destination_city", ""),
+            days=request.data.get("days", ""),
+            budget=request.data.get("budget", ""),
+            preferences=request.data.get("preferences", ""),
+            draft_itinerary=request.data.get("draft_itinerary", ""),
+            model=model,
+        )
+        return _stream_langchain_response(stream, "AI 正在生成旅行建议")
 
 
-class PostPolishView(APIView):
+# ═══════════════════════════════════════════════
+# 工作流 2：景点智能问答
+# ═══════════════════════════════════════════════
+
+class ScenicQAView(APIView):
+    """LangChain 工作流：景点智能问答"""
+
     permission_classes = [permissions.IsAuthenticated]
 
-    @staticmethod
-    def build_prompt(request):
-        return (
-            "请将以下旅游社区帖子润色为更适合发布的版本。"
-            "要求：保留真实感，不夸张，不编造没有提供的信息。"
-            "请按如下格式输出：\n"
-            "标题：...\n"
-            "正文：...\n"
-            "标签建议：...\n"
-            f"原标题：{request.data.get('title', '')}\n"
-            f"原正文：{request.data.get('content', '')}\n"
-            f"原标签：{request.data.get('tags', '')}\n"
+    def post(self, request):
+        destination_name = request.data.get("destination_name", "")
+        destination = find_destination(destination_name)
+        if not destination:
+            return Response(
+                {"detail": "没有找到对应景点，请换个景点名称试试。"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        provider = request.data.get("provider", "qwen")
+        model = request.data.get("model")
+        context = build_destination_context(destination)
+        question = request.data.get("question", "")
+
+        try:
+            content = scenic_qa(provider=provider, context=context, question=question, model=model)
+            return Response({
+                "destination_name": destination.name,
+                "destination_city": destination.city,
+                "content": content,
+            })
+        except LangChainServiceError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ScenicQAStreamView(APIView):
+    """LangChain 工作流：景点智能问答（流式）"""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        destination_name = request.data.get("destination_name", "")
+        destination = find_destination(destination_name)
+        if not destination:
+            return Response(
+                {"detail": "没有找到对应景点，请换个景点名称试试。"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        provider = request.data.get("provider", "qwen")
+        model = request.data.get("model")
+        context = build_destination_context(destination)
+        question = request.data.get("question", "")
+
+        def generate():
+            yield sse_event("destination", {
+                "destination_name": destination.name,
+                "destination_city": destination.city,
+            })
+            yield sse_event("progress", {"progress": 5, "message": f"已锁定景点：{destination.name}"})
+
+            content = ""
+            chunk_count = 0
+            try:
+                for chunk in scenic_qa_stream(provider=provider, context=context, question=question, model=model):
+                    chunk_count += 1
+                    content += chunk
+                    yield sse_event("content", {"chunk": chunk, "content": content})
+                    yield sse_event(
+                        "progress",
+                        {"progress": min(10 + chunk_count * 4, 95), "message": "AI 正在回答景点问题"},
+                    )
+                yield sse_event("progress", {"progress": 100, "message": "问答完成"})
+                yield sse_event("done", {"content": content})
+            except LangChainServiceError as exc:
+                yield sse_event("error", {"detail": str(exc)})
+
+        response = StreamingHttpResponse(generate(), content_type="text/event-stream")
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+
+# ═══════════════════════════════════════════════
+# 工作流 3：景点数据分析
+# ═══════════════════════════════════════════════
+
+class DestinationAnalysisStreamView(APIView):
+    """LangChain 工作流：景点数据分析（流式）"""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        destination_id = request.data.get("destination_id")
+        destination = (
+            Destination.objects.prefetch_related("hotels", "reviews", "reviews__user__profile")
+            .filter(pk=destination_id)
+            .first()
         )
+        if not destination:
+            return Response({"detail": "没有找到对应景点。"}, status=status.HTTP_404_NOT_FOUND)
+
+        provider = request.data.get("provider", "qwen")
+        model = request.data.get("model")
+        context = build_destination_analysis_context(destination)
+
+        def generate():
+            yield sse_event("destination", {
+                "destination_name": destination.name,
+                "destination_city": destination.city,
+            })
+            yield sse_event("progress", {"progress": 10, "message": "已整理景点评分与评价数据"})
+
+            content = ""
+            chunk_count = 0
+            try:
+                for chunk in destination_analysis_stream(provider=provider, context=context, model=model):
+                    chunk_count += 1
+                    content += chunk
+                    yield sse_event("content", {"chunk": chunk, "content": content})
+                    yield sse_event(
+                        "progress",
+                        {"progress": min(15 + chunk_count * 4, 95), "message": "AI 正在分析景点数据"},
+                    )
+                yield sse_event("progress", {"progress": 100, "message": "分析完成"})
+                yield sse_event("done", {"content": content})
+            except LangChainServiceError as exc:
+                yield sse_event("error", {"detail": str(exc)})
+
+        response = StreamingHttpResponse(generate(), content_type="text/event-stream")
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+
+# ═══════════════════════════════════════════════
+# 工作流 4：内容润色
+# ═══════════════════════════════════════════════
+
+class PostPolishView(APIView):
+    """LangChain 工作流：内容润色"""
+
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         provider = request.data.get("provider", "qwen")
         model = request.data.get("model")
         try:
-            content = chat_completion(provider=provider, model=model, prompt=self.build_prompt(request), temperature=0.8)
+            content = post_polish(
+                provider=provider,
+                title=request.data.get("title", ""),
+                content=request.data.get("content", ""),
+                tags=request.data.get("tags", ""),
+                model=model,
+            )
             return Response({"content": content})
-        except AIServiceError as exc:
+        except LangChainServiceError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class PostPolishStreamView(APIView):
+    """LangChain 工作流：内容润色（流式）"""
+
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         provider = request.data.get("provider", "qwen")
         model = request.data.get("model")
-        prompt = PostPolishView.build_prompt(request)
-        return stream_text_response(provider=provider, model=model, prompt=prompt, temperature=0.8)
+        stream = post_polish_stream(
+            provider=provider,
+            title=request.data.get("title", ""),
+            content=request.data.get("content", ""),
+            tags=request.data.get("tags", ""),
+            model=model,
+        )
+        return _stream_langchain_response(stream, "AI 正在润色内容")
 
+
+# ═══════════════════════════════════════════════
+# 工作流 5：帖子总结
+# ═══════════════════════════════════════════════
 
 class PostSummaryStreamView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    """LangChain 工作流：帖子总结（流式）"""
 
-    @staticmethod
-    def build_prompt(post):
-        comments = list(post.comments.select_related("author", "author__profile").filter(parent__isnull=True))
-        comment_lines = []
-        for comment in comments[:8]:
-            author_name = get_user_display_name(comment.author)
-            reply_count = comment.replies.count()
-            comment_lines.append(
-                f"{author_name}：{comment.content}（回复 {reply_count} 条）"
-            )
-        return (
-            "你是旅游社区的内容总结助手。"
-            "请基于帖子正文和评论，生成适合前端展示的中文总结。"
-            "输出请包含 3 个部分：1. 帖子核心内容 2. 评论关注点 3. 给读者的快速建议。"
-            "请使用 Markdown，简洁清晰，不要编造帖子里没有的信息。\n"
-            f"帖子标题：{post.title}\n"
-            f"关联景点：{post.destination.name if post.destination else '未关联景点'}\n"
-            f"帖子正文：{post.content}\n"
-            f"帖子标签：{post.tags or '无'}\n"
-            f"评论摘要：{'；'.join(comment_lines) if comment_lines else '当前暂无评论'}\n"
-        )
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         post_id = request.data.get("post_id")
@@ -210,141 +375,25 @@ class PostSummaryStreamView(APIView):
         if not post:
             return Response({"detail": "没有找到对应帖子。"}, status=status.HTTP_404_NOT_FOUND)
 
+        # 构建评论摘要
+        comments = list(post.comments.filter(parent__isnull=True)[:8])
+        comment_lines = []
+        for comment in comments:
+            author_name = get_user_display_name(comment.author)
+            reply_count = comment.replies.count()
+            comment_lines.append(f"{author_name}：{comment.content}（回复 {reply_count} 条）")
+
         provider = request.data.get("provider", "qwen")
         model = request.data.get("model")
-        prompt = self.build_prompt(post)
-        return stream_text_response(provider=provider, model=model, prompt=prompt, temperature=0.5)
+        destination_name = post.destination.name if post.destination else "未关联景点"
 
-
-class ScenicQAView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    @staticmethod
-    def build_prompt(request, destination):
-        return (
-            "你是旅游平台的景点问答助手。"
-            "请严格基于给定景点资料回答用户问题。"
-            "如果资料里没有明确写到，就明确说明“根据当前系统资料暂时无法确认”，再给出保守建议。"
-            "回答请使用中文，内容清晰、实用，适合旅游场景。\n"
-            f"{build_destination_context(destination)}\n"
-            f"用户问题：{request.data.get('question', '')}\n"
+        stream = post_summary_stream(
+            provider=provider,
+            title=post.title,
+            destination_name=destination_name,
+            content=post.content,
+            tags=post.tags or "无",
+            comments_summary="；".join(comment_lines) if comment_lines else "当前暂无评论",
+            model=model,
         )
-
-    def post(self, request):
-        destination_name = request.data.get("destination_name", "")
-        destination = find_destination(destination_name)
-        if not destination:
-            return Response({"detail": "没有找到对应景点，请换个景点名称试试。"}, status=status.HTTP_404_NOT_FOUND)
-
-        provider = request.data.get("provider", "qwen")
-        model = request.data.get("model")
-        try:
-            content = chat_completion(
-                provider=provider,
-                model=model,
-                prompt=self.build_prompt(request, destination),
-                temperature=0.5,
-            )
-            return Response(
-                {
-                    "destination_name": destination.name,
-                    "destination_city": destination.city,
-                    "content": content,
-                }
-            )
-        except AIServiceError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-
-
-class ScenicQAStreamView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request):
-        destination_name = request.data.get("destination_name", "")
-        destination = find_destination(destination_name)
-        if not destination:
-            return Response({"detail": "没有找到对应景点，请换个景点名称试试。"}, status=status.HTTP_404_NOT_FOUND)
-
-        provider = request.data.get("provider", "qwen")
-        model = request.data.get("model")
-
-        def generate():
-            yield sse_event(
-                "destination",
-                {
-                    "destination_name": destination.name,
-                    "destination_city": destination.city,
-                },
-            )
-            prompt = ScenicQAView.build_prompt(request, destination)
-            content = ""
-            chunk_count = 0
-            yield sse_event("progress", {"progress": 10, "message": f"已锁定景点：{destination.name}"})
-            try:
-                for chunk in chat_completion_stream(provider=provider, model=model, prompt=prompt, temperature=0.5):
-                    chunk_count += 1
-                    content += chunk
-                    yield sse_event("content", {"chunk": chunk, "content": content})
-                    yield sse_event(
-                        "progress",
-                        {
-                            "progress": min(15 + chunk_count * 4, 95),
-                            "message": "AI 正在回答景点问题",
-                        },
-                    )
-                yield sse_event("progress", {"progress": 100, "message": "问答完成"})
-                yield sse_event("done", {"content": content})
-            except AIServiceError as exc:
-                yield sse_event("error", {"detail": str(exc)})
-
-        response = StreamingHttpResponse(generate(), content_type="text/event-stream")
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
-
-
-class DestinationAnalysisStreamView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request):
-        destination_id = request.data.get("destination_id")
-        destination = Destination.objects.prefetch_related("hotels", "reviews", "reviews__user__profile").filter(pk=destination_id).first()
-        if not destination:
-            return Response({"detail": "没有找到对应景点。"}, status=status.HTTP_404_NOT_FOUND)
-
-        provider = request.data.get("provider", "qwen")
-        model = request.data.get("model")
-        prompt = (
-            "你是旅游平台的数据分析助手。"
-            "请基于景点资料、评分统计和用户评价，对当前景点做一份适合前端展示的分析。"
-            "请输出 4 个部分：1. 景点整体印象 2. 用户评分解读 3. 优势与短板 4. 适合人群与建议。"
-            "请用中文回答，避免编造资料中没有的信息。\n"
-            f"{build_destination_analysis_context(destination)}"
-        )
-
-        def generate():
-            yield sse_event(
-                "destination",
-                {"destination_name": destination.name, "destination_city": destination.city},
-            )
-            content = ""
-            chunk_count = 0
-            yield sse_event("progress", {"progress": 10, "message": "已整理景点评分与评价数据"})
-            try:
-                for chunk in chat_completion_stream(provider=provider, model=model, prompt=prompt, temperature=0.4):
-                    chunk_count += 1
-                    content += chunk
-                    yield sse_event("content", {"chunk": chunk, "content": content})
-                    yield sse_event(
-                        "progress",
-                        {"progress": min(15 + chunk_count * 4, 95), "message": "AI 正在分析景点数据"},
-                    )
-                yield sse_event("progress", {"progress": 100, "message": "分析完成"})
-                yield sse_event("done", {"content": content})
-            except AIServiceError as exc:
-                yield sse_event("error", {"detail": str(exc)})
-
-        response = StreamingHttpResponse(generate(), content_type="text/event-stream")
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
+        return _stream_langchain_response(stream, "AI 正在生成总结")

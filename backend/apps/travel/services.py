@@ -163,3 +163,41 @@ def search_destination_ids(keyword):
         size=20,
     )
     return [int(hit["_id"]) for hit in response["hits"]["hits"]]
+
+
+# ── ES 健康检查 + DB 降级 ──
+
+_es_available_cache = {"value": None, "ts": 0}
+_ES_HEALTH_TTL = 30  # 健康检查结果缓存 30 秒
+
+
+def is_es_healthy() -> bool:
+    """检查 ES 是否可用（带 30s 缓存）。"""
+    import time
+    now = time.time()
+    if now - _es_available_cache["ts"] < _ES_HEALTH_TTL:
+        return bool(_es_available_cache["value"])
+    try:
+        client = Elasticsearch(settings.ELASTICSEARCH_URL, request_timeout=3)
+        healthy = client.ping()
+    except Exception:
+        healthy = False
+    _es_available_cache["value"] = healthy
+    _es_available_cache["ts"] = now
+    return healthy
+
+
+def search_destinations_db(keyword: str, hidden_gem: bool = False, limit: int = 20):
+    """ES 不可用时的 DB 降级搜索（MySQL LIKE）。"""
+    from django.db.models import Q
+    queryset = Destination.objects.prefetch_related("hotels", "reviews", "favorites")
+    if hidden_gem:
+        queryset = queryset.filter(is_hidden_gem=True)
+    query = (
+        Q(name__icontains=keyword)
+        | Q(city__icontains=keyword)
+        | Q(province__icontains=keyword)
+        | Q(summary__icontains=keyword)
+        | Q(tags__icontains=keyword)
+    )
+    return list(queryset.filter(query).order_by("-score")[:limit])

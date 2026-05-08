@@ -1,18 +1,16 @@
 from django.urls import path
 
-from apps.social.views import (
-    AdminDashboardView,
-    AdminBatchSeedView,
+from apps.social.notification_views import NotificationListView, NotificationReadView
+from apps.social.post_views import (
     CommentCreateView,
     FavoritePostListView,
     FavoritePostToggleView,
     LikeToggleView,
-    NotificationListView,
-    NotificationReadView,
     PostDetailView,
     PostListCreateView,
     PostRelatedView,
 )
+from apps.social.views import AdminBatchSeedView, AdminDashboardView
 
 urlpatterns = [
     path("admin/dashboard/", AdminDashboardView.as_view(), name="admin-dashboard"),

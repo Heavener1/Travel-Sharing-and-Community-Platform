@@ -166,7 +166,7 @@ watch(
 
     <section id="scenic-overview" class="grid-2">
       <article class="panel">
-        <img v-if="destination.cover" :src="destination.cover" :alt="destination.name" class="cover detail-cover" />
+        <img v-if="destination.cover" :src="destination.cover" :alt="destination.name" class="cover detail-cover" loading="lazy" />
         <p class="eyebrow">景点详情</p>
         <h2>{{ destination.name }}</h2>
         <p class="muted">{{ destination.city }} · {{ destination.province }}</p>

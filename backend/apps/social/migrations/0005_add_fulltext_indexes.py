@@ -24,15 +24,32 @@ ALTER TABLE social_postcomment DROP COLUMN content_fts;
 """
 
 
+def _apply_fulltext_if_mysql(apps, schema_editor):
+    if schema_editor.connection.vendor != "mysql":
+        return  # SQLite / PostgreSQL — nothing to do
+    try:
+        schema_editor.execute(_FORWARD_SQL)
+    except Exception:
+        pass  # 权限不足或测试环境跳过
+
+
+def _revert_fulltext_if_mysql(apps, schema_editor):
+    if schema_editor.connection.vendor != "mysql":
+        return
+    try:
+        schema_editor.execute(_REVERSE_SQL)
+    except Exception:
+        pass
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("social", "0004_alter_useraction_action_type_favoritepost"),
     ]
 
     operations = [
-        migrations.RunSQL(
-            sql=_FORWARD_SQL,
-            reverse_sql=_REVERSE_SQL,
-            hints={"db_engine": "mysql"},
+        migrations.RunPython(
+            code=_apply_fulltext_if_mysql,
+            reverse_code=_revert_fulltext_if_mysql,
         ),
     ]

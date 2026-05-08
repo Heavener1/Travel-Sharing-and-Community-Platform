@@ -2,13 +2,16 @@ import json
 import logging
 from collections import Counter, defaultdict
 
-from django.db.models import Avg
+from django.conf import settings
+from django.core.cache import cache
+from django.db.models import Avg, Count, Q
 from django.http import StreamingHttpResponse
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.ai.services import AIServiceError, chat_completion_stream, list_providers
+from apps.ai.services import list_providers
+from apps.common.cache_utils import get_cached_ai_summary, set_cached_ai_summary
 from apps.common.utils import build_user_preference_profile, extract_tags, sse_event, track_destination_action
 from apps.social.models import UserAction
 from apps.travel.models import Destination, DestinationReview, FavoriteDestination, Hotel
@@ -25,6 +28,12 @@ from apps.travel.services import search_destination_ids, upload_fileobj
 logger = logging.getLogger("apps.travel")
 
 
+def _invalidate_list_caches():
+    """数据变更时清除列表/推荐/Dashboard 缓存。"""
+    for k in ("recommendation:anonymous", "dashboard:anonymous"):
+        cache.delete(k)
+
+
 def get_destination_queryset():
     return Destination.objects.prefetch_related("hotels", "reviews", "reviews__user__profile", "favorites").all()
 
@@ -37,20 +46,25 @@ def update_destination_score(destination):
 
 
 def search_es(keyword, hidden_gem=False, limit=20):
-    """ES 全文检索：返回按 ES 评分排序的 Destination 对象列表。ES 暂不可用时返回空列表。"""
-    try:
-        ids = search_destination_ids(keyword)
-        if not ids:
-            return []
-        preserved = {pk: index for index, pk in enumerate(ids)}
-        queryset = get_destination_queryset().filter(id__in=ids)
-        items = sorted(queryset, key=lambda item: preserved.get(item.id, 9999))
-        if hidden_gem:
-            items = [item for item in items if item.is_hidden_gem]
-        return items[:limit]
-    except Exception:
-        logger.warning("ES search failed for keyword=%s", keyword, exc_info=True)
-        return []
+    """ES 全文检索：优先 ES，不可用时自动降级为 DB LIKE 搜索。"""
+    from apps.travel.services import is_es_healthy, search_destinations_db
+
+    if is_es_healthy():
+        try:
+            ids = search_destination_ids(keyword)
+            if ids:
+                preserved = {pk: index for index, pk in enumerate(ids)}
+                queryset = get_destination_queryset().filter(id__in=ids)
+                items = sorted(queryset, key=lambda item: preserved.get(item.id, 9999))
+                if hidden_gem:
+                    items = [item for item in items if item.is_hidden_gem]
+                return items[:limit]
+        except Exception:
+            logger.warning("ES search failed for keyword=%s, falling back to DB", keyword, exc_info=True)
+
+    # ES 不可用 → DB 降级
+    logger.info("ES unavailable, using DB fallback for keyword=%s", keyword)
+    return search_destinations_db(keyword, hidden_gem=hidden_gem, limit=limit)
 
 
 def pick_ai_provider():
@@ -59,30 +73,6 @@ def pick_ai_provider():
         if provider_info.get(provider, {}).get("configured"):
             return provider
     return None
-
-
-def build_ai_search_prompt(keyword, source_items):
-    context = [
-        {
-            "name": item.name,
-            "city": item.city,
-            "province": item.province,
-            "summary": item.summary,
-            "tags": item.tags,
-            "best_season": item.best_season,
-            "budget_level": item.budget_level,
-            "score": float(item.score),
-        }
-        for item in source_items[:6]
-    ]
-    return (
-        "你是旅游平台的智能搜索助手。"
-        "请根据用户搜索词和候选景点，生成一段适合前端实时展示的中文搜索建议。"
-        "输出结构按以下顺序自然组织：1. 一句话总结 2. 推荐优先看的景点 3. 玩法建议 4. 适合人群。"
-        "不要编造过于具体的票价、地址或营业时间。\n"
-        f"用户搜索词：{keyword}\n"
-        f"候选景点：{json.dumps(context, ensure_ascii=False)}\n"
-    )
 
 
 def personalized_destination_queryset(user):
@@ -138,8 +128,16 @@ def personalized_destination_queryset(user):
         score += city_counter.get(item.city, 0) * 0.8
         score += province_counter.get(item.province, 0) * 0.5
         scored.append((score, item))
+
     scored.sort(key=lambda pair: pair[0], reverse=True)
-    return [item for _, item in scored]
+    scored_ids = [item.id for _, item in scored]
+    # Re-fetch with all prefetches so serializers don't trigger N+1
+    prefetched = list(Destination.objects.prefetch_related(
+        "hotels", "reviews", "reviews__user__profile", "favorites"
+    ).filter(id__in=scored_ids))
+    id_order = {pk: idx for idx, pk in enumerate(scored_ids)}
+    prefetched.sort(key=lambda d: id_order.get(d.id, 9999))
+    return prefetched
 
 
 class DestinationListView(generics.ListCreateAPIView):
@@ -176,6 +174,7 @@ class DestinationListView(generics.ListCreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         destination = serializer.save()
+        _invalidate_list_caches()
         return Response(DestinationSerializer(destination, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
 
@@ -205,17 +204,29 @@ class SmartSearchView(APIView):
         provider = pick_ai_provider()
         ai_summary = ""
         ai_error = ""
+        cached = False
+
         if provider and items:
-            try:
-                ai_summary = "".join(
-                    chat_completion_stream(
-                        provider=provider,
-                        prompt=build_ai_search_prompt(keyword, items),
-                        temperature=0.4,
+            top_ids = [item.id for item in items[:6]]
+            # ── AI 摘要缓存 ──
+            ai_summary = get_cached_ai_summary(keyword, top_ids)
+            if ai_summary is not None:
+                cached = True
+            else:
+                try:
+                    candidates_text = json.dumps(
+                        [{"name": item.name, "city": item.city, "province": item.province,
+                          "summary": item.summary, "tags": item.tags,
+                          "best_season": item.best_season, "budget_level": item.budget_level,
+                          "score": float(item.score)} for item in items[:6]],
+                        ensure_ascii=False,
                     )
-                )
-            except AIServiceError as exc:
-                ai_error = str(exc)
+                    from apps.ai.langchain_service import smart_search
+                    ai_summary = smart_search(provider=provider, keyword=keyword, candidates=candidates_text)
+                    if ai_summary:
+                        set_cached_ai_summary(keyword, top_ids, ai_summary)
+                except Exception as exc:
+                    ai_error = str(exc)
         elif not provider:
             ai_error = "AI 服务暂未配置。"
 
@@ -226,6 +237,7 @@ class SmartSearchView(APIView):
                 "ai_summary": ai_summary,
                 "ai_provider": provider or "",
                 "ai_error": ai_error,
+                "ai_cached": cached,
                 "featured_results": [],
             }
         )
@@ -266,19 +278,45 @@ class SmartSearchStreamView(APIView):
                 yield sse_event("done", {"content": ""})
                 return
 
+            top_ids = [item.id for item in items[:6]]
+
+            # ── AI 摘要缓存（流式）──
+            cached_summary = get_cached_ai_summary(keyword, top_ids)
+            if cached_summary is not None:
+                yield sse_event("provider", {"provider": provider})
+                yield sse_event("progress", {"progress": 55, "message": "AI 摘要命中缓存"})
+                yield sse_event("ai_content", {"chunk": cached_summary, "content": cached_summary})
+                yield sse_event("progress", {"progress": 100, "message": "智能搜索完成（缓存）"})
+                yield sse_event("done", {"content": cached_summary, "cached": True})
+                return
+
             yield sse_event("provider", {"provider": provider})
             yield sse_event("progress", {"progress": 55, "message": "AI 正在生成智能导览"})
+
+            candidates_text = json.dumps(
+                [{"name": item.name, "city": item.city, "province": item.province,
+                  "summary": item.summary, "tags": item.tags,
+                  "best_season": item.best_season, "budget_level": item.budget_level,
+                  "score": float(item.score)} for item in items[:6]],
+                ensure_ascii=False,
+            )
+
+            from apps.ai.langchain_service import smart_search_stream
+
             content = ""
             chunk_count = 0
             try:
-                for chunk in chat_completion_stream(provider=provider, prompt=build_ai_search_prompt(keyword, items), temperature=0.4):
+                for chunk in smart_search_stream(provider=provider, keyword=keyword, candidates=candidates_text):
                     chunk_count += 1
                     content += chunk
                     yield sse_event("ai_content", {"chunk": chunk, "content": content})
                     yield sse_event("progress", {"progress": min(60 + chunk_count * 3, 95), "message": "AI 正在完善搜索建议"})
+                # 缓存完整内容
+                if content:
+                    set_cached_ai_summary(keyword, top_ids, content)
                 yield sse_event("progress", {"progress": 100, "message": "智能搜索完成"})
                 yield sse_event("done", {"content": content})
-            except AIServiceError as exc:
+            except Exception as exc:
                 yield sse_event("error", {"detail": str(exc)})
                 yield sse_event("progress", {"progress": 100, "message": "已返回检索结果"})
                 yield sse_event("done", {"content": content})
@@ -315,6 +353,7 @@ class DestinationReviewCreateView(APIView):
         track_destination_action(request.user, destination, "review")
         destination.refresh_from_db()
         destination = get_destination_queryset().get(pk=destination.pk)
+        _invalidate_list_caches()
         return Response(DestinationDetailSerializer(destination, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
 
@@ -322,7 +361,9 @@ class FavoriteDestinationListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        queryset = FavoriteDestination.objects.filter(user=request.user).select_related("destination")
+        queryset = FavoriteDestination.objects.filter(user=request.user).select_related("destination").prefetch_related(
+            "destination__hotels", "destination__reviews", "destination__reviews__user__profile", "destination__favorites"
+        )
         serializer = FavoriteDestinationSerializer(queryset, many=True, context={"request": request})
         return Response({"results": serializer.data})
 
@@ -335,8 +376,10 @@ class FavoriteDestinationToggleView(APIView):
         favorite, created = FavoriteDestination.objects.get_or_create(destination=destination, user=request.user)
         if created:
             track_destination_action(request.user, destination, "favorite")
+            _invalidate_list_caches()
             return Response({"favorited": True}, status=status.HTTP_201_CREATED)
         favorite.delete()
+        _invalidate_list_caches()
         return Response({"favorited": False}, status=status.HTTP_200_OK)
 
 
@@ -383,11 +426,15 @@ class DestinationRelatedView(APIView):
                 user_post_destination_boost[like.post.destination_id] += 2
 
         scored_posts = []
-        for item in (
+        post_qs = (
             Post.objects.filter(status="approved")
             .select_related("author", "destination")
-            .prefetch_related("comments", "likes", "favorites")[: self.MAX_POSTS]
-        ):
+            .annotate(
+                like_count=Count("likes"),
+                approved_comment_count=Count("comments", filter=Q(comments__status="approved")),
+            )[: self.MAX_POSTS]
+        )
+        for item in post_qs:
             item_tags = set(extract_tags(item.tags))
             shared_tags = len(current_tags & item_tags)
             same_destination = 4 if item.destination_id == current_destination.id or getattr(item.destination, "name", "") == current_destination.name else 0
@@ -396,7 +443,7 @@ class DestinationRelatedView(APIView):
                 affinity += profile["destination_counter"].get(item.destination_id, 0) * 0.4
                 affinity += user_post_destination_boost.get(item.destination_id, 0) * 0.5
                 affinity += sum(profile["tag_counter"].get(tag, 0) for tag in item_tags) * 0.18
-            score = shared_tags * 1.6 + same_destination + item.likes.count() * 0.08 + item.comments.filter(status="approved").count() * 0.1 + affinity
+            score = shared_tags * 1.6 + same_destination + item.like_count * 0.08 + item.approved_comment_count * 0.1 + affinity
             if score > 0:
                 scored_posts.append((score, item))
         scored_posts.sort(key=lambda pair: pair[0], reverse=True)
@@ -424,26 +471,42 @@ class HotelListView(generics.ListAPIView):
 
 
 class RecommendationView(APIView):
-    def get(self, request):
-        if not request.user.is_authenticated:
-            items = Destination.objects.all().order_by("-is_hidden_gem", "-score")[:6]
-            return Response(DestinationSerializer(items, many=True, context={"request": request}).data)
+    CACHE_TTL = 300  # 5 min
 
-        items = personalized_destination_queryset(request.user)[:6]
-        return Response(DestinationSerializer(items, many=True, context={"request": request}).data)
+    def get(self, request):
+        is_auth = request.user.is_authenticated
+        cache_key = f"recommendation:{request.user.id}" if is_auth else "recommendation:anonymous"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
+        if not is_auth:
+            items = get_destination_queryset().order_by("-is_hidden_gem", "-score")[:6]
+        else:
+            items = personalized_destination_queryset(request.user)[:6]
+        data = DestinationSerializer(items, many=True, context={"request": request}).data
+        cache.set(cache_key, data, self.CACHE_TTL)
+        return Response(data)
 
 
 class TravelDashboardView(APIView):
+    CACHE_TTL = 300  # 5 min
+
     def get(self, request):
-        featured = personalized_destination_queryset(request.user)[:3] if request.user.is_authenticated else Destination.objects.prefetch_related("hotels", "reviews").order_by("-score")[:3]
-        return Response(
-            {
-                "destination_count": Destination.objects.count(),
-                "hidden_gem_count": Destination.objects.filter(is_hidden_gem=True).count(),
-                "hotel_count": Hotel.objects.count(),
-                "featured_destinations": DestinationSerializer(featured, many=True, context={"request": request}).data,
-            }
-        )
+        cache_key = "dashboard:anonymous"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
+        featured = personalized_destination_queryset(request.user)[:3] if request.user.is_authenticated else get_destination_queryset().order_by("-score")[:3]
+        data = {
+            "destination_count": Destination.objects.count(),
+            "hidden_gem_count": Destination.objects.filter(is_hidden_gem=True).count(),
+            "hotel_count": Hotel.objects.count(),
+            "featured_destinations": DestinationSerializer(featured, many=True, context={"request": request}).data,
+        }
+        cache.set(cache_key, data, self.CACHE_TTL)
+        return Response(data)
 
 
 class UploadImageView(APIView):

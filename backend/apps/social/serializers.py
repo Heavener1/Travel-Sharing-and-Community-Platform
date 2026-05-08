@@ -26,8 +26,12 @@ class PostCommentSerializer(serializers.ModelSerializer):
         read_only_fields = ("author", "status")
 
     def get_replies(self, obj):
-        replies = [r for r in obj.replies.all() if r.status == "approved"]
-        return PostCommentSerializer(replies, many=True, context=self.context).data
+        if hasattr(obj, "_prefetched_objects_cache") and "replies" in obj._prefetched_objects_cache:
+            all_replies = obj._prefetched_objects_cache["replies"]
+        else:
+            all_replies = list(obj.replies.all())
+        approved = [r for r in all_replies if r.status == "approved"]
+        return PostCommentSerializer(approved, many=True, context=self.context).data
 
     def get_author_avatar(self, obj):
         return resolve_media_url(getattr(getattr(obj.author, "profile", None), "avatar", ""))
@@ -47,13 +51,13 @@ class BasePostSerializer(serializers.ModelSerializer):
     cover = serializers.SerializerMethodField()
 
     def get_like_count(self, obj):
-        if hasattr(obj, "likes"):
-            return len(obj.likes.all())
+        if hasattr(obj, "_prefetched_objects_cache") and "likes" in obj._prefetched_objects_cache:
+            return len(obj._prefetched_objects_cache["likes"])
         return obj.likes.count()
 
     def get_comment_count(self, obj):
-        if hasattr(obj, "comments"):
-            return sum(1 for c in obj.comments.all() if c.status == "approved")
+        if hasattr(obj, "_prefetched_objects_cache") and "comments" in obj._prefetched_objects_cache:
+            return sum(1 for c in obj._prefetched_objects_cache["comments"] if c.status == "approved")
         return obj.comments.filter(status="approved").count()
 
     def get_cover(self, obj):
@@ -70,8 +74,8 @@ class BasePostSerializer(serializers.ModelSerializer):
         user = getattr(request, "user", None)
         if not user or not user.is_authenticated:
             return False
-        if hasattr(obj, "likes"):
-            return any(like.user_id == user.id for like in obj.likes.all())
+        if hasattr(obj, "_prefetched_objects_cache") and "likes" in obj._prefetched_objects_cache:
+            return any(like.user_id == user.id for like in obj._prefetched_objects_cache["likes"])
         return obj.likes.filter(user=user).exists()
 
     def get_current_user_favorited(self, obj):
@@ -79,8 +83,8 @@ class BasePostSerializer(serializers.ModelSerializer):
         user = getattr(request, "user", None)
         if not user or not user.is_authenticated:
             return False
-        if hasattr(obj, "favorites"):
-            return any(fav.user_id == user.id for fav in obj.favorites.all())
+        if hasattr(obj, "_prefetched_objects_cache") and "favorites" in obj._prefetched_objects_cache:
+            return any(fav.user_id == user.id for fav in obj._prefetched_objects_cache["favorites"])
         return obj.favorites.filter(user=user).exists()
 
 
@@ -115,8 +119,12 @@ class PostSerializer(BasePostSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
+        if hasattr(instance, "_prefetched_objects_cache") and "comments" in instance._prefetched_objects_cache:
+            all_comments = instance._prefetched_objects_cache["comments"]
+        else:
+            all_comments = list(instance.comments.all())
         approved_top_level = [
-            c for c in instance.comments.all()
+            c for c in all_comments
             if c.parent_id is None and c.status == "approved"
         ]
         data["comments"] = PostCommentSerializer(

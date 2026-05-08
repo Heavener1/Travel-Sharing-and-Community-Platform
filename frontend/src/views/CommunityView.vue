@@ -186,8 +186,23 @@ const polishPost = async () => {
 };
 
 const toggleLike = async (postId) => {
-  await http.post(`/social/posts/${postId}/like/`);
-  await fetchPosts();
+  // Optimistic update: toggle like locally before API call
+  const post = posts.value.find((p) => p.id === postId);
+  if (post) {
+    const wasLiked = post.current_user_liked;
+    post.current_user_liked = !wasLiked;
+    post.like_count = (post.like_count || 0) + (wasLiked ? -1 : 1);
+  }
+  try {
+    await http.post(`/social/posts/${postId}/like/`);
+  } catch {
+    // Revert on failure
+    if (post) {
+      post.current_user_liked = !post.current_user_liked;
+      post.like_count = (post.like_count || 0) + (post.current_user_liked ? -1 : 1);
+    }
+    uiStore.pushToast("操作失败，请稍后再试");
+  }
 };
 
 const toggleFavorite = async (post) => {
@@ -230,7 +245,9 @@ const submitComment = async (postId, parentId = null) => {
     commentModalOpen.value = false;
   }
   activePostId.value = null;
-  await fetchPosts();
+  // Increment comment count locally instead of full refetch
+  const post = posts.value.find((p) => p.id === postId);
+  if (post) post.comment_count = (post.comment_count || 0) + 1;
 };
 
 watch(() => authStore.isAuthenticated, () => {
@@ -300,7 +317,7 @@ onMounted(async () => {
         </div>
       </div>
 
-      <img v-if="post.cover" :src="post.cover" :alt="post.title" class="cover feed-cover" />
+      <img v-if="post.cover" :src="post.cover" :alt="post.title" class="cover feed-cover" loading="lazy" />
 
       <div class="feed-summary">
         <p class="summary-two-lines">{{ post.content_preview }}</p>

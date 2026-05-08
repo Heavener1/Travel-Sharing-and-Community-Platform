@@ -9,7 +9,7 @@ import { streamRequest } from "../api/stream";
 import { chinaRegions } from "../data/chinaRegions";
 import { useAuthStore } from "../stores/auth";
 import { useUiStore } from "../stores/ui";
-import { shareContent } from "../utils/collection";
+import { debounce, shareContent } from "../utils/collection";
 
 const authStore = useAuthStore();
 const uiStore = useUiStore();
@@ -164,6 +164,15 @@ const fetchSmartResults = async () => {
   }
 };
 
+/** Debounced search: triggers 300ms after user stops typing */
+const debouncedSearch = debounce(() => {
+  if (!keyword.value.trim()) {
+    fetchSmartResults();  // reload featured
+    return;
+  }
+  fetchSmartResults();
+}, 400);
+
 const uploadCover = async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
@@ -201,7 +210,7 @@ onMounted(async () => {
 <template>
   <section class="panel">
     <div class="search-bar-row">
-      <input v-model="keyword" class="input" placeholder="搜索城市、景点、标签、玩法" @keyup.enter="fetchSmartResults" />
+      <input v-model="keyword" class="input" placeholder="搜索城市、景点、标签、玩法" @input="debouncedSearch" @keyup.enter="fetchSmartResults" />
       <button class="btn btn-primary search-submit-btn" @click="fetchSmartResults">
         {{ loading ? "搜索中..." : "智能搜索" }}
       </button>
@@ -265,7 +274,7 @@ onMounted(async () => {
       </div>
 
       <article v-else v-for="item in mergedResults" :key="`merged-${item.id}`" class="card interactive-card">
-        <img v-if="item.cover" :src="item.cover" :alt="item.name" class="cover" />
+        <img v-if="item.cover" :src="item.cover" :alt="item.name" class="cover" loading="lazy" />
         <div class="split">
           <div>
             <h3>{{ item.name }}</h3>
@@ -332,7 +341,7 @@ onMounted(async () => {
       </div>
 
       <article v-else v-for="item in featuredResults" :key="item.id" class="card interactive-card">
-        <img v-if="item.cover" :src="item.cover" :alt="item.name" class="cover" />
+        <img v-if="item.cover" :src="item.cover" :alt="item.name" class="cover" loading="lazy" />
         <h3>{{ item.name }}</h3>
         <p class="muted">{{ item.city }} · {{ item.province }}</p>
         <p class="summary-two-lines">{{ item.summary }}</p>

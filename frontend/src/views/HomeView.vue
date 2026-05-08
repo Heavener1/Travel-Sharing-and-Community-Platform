@@ -136,7 +136,7 @@ onMounted(async () => {
           </div>
         </div>
         <div v-else v-for="item in dashboard.featured_destinations" :key="item.id" class="card interactive-card">
-          <img v-if="item.cover" :src="item.cover" :alt="item.name" class="cover" />
+          <img v-if="item.cover" :src="item.cover" :alt="item.name" class="cover" loading="lazy" />
           <h3>{{ item.name }}</h3>
           <p class="muted">{{ item.city }} · {{ item.province }}</p>
           <p class="summary-two-lines">{{ item.summary }}</p>

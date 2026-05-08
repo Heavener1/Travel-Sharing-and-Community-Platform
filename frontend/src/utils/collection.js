@@ -92,3 +92,15 @@ export const shareContent = async ({ title, path, summary, onSuccess, onError })
     return false;
   }
 };
+
+/**
+ * Debounce utility — delays fn execution until `delay` ms after last call.
+ * Usage: const debouncedFn = debounce(fn, 300)
+ */
+export function debounce(fn, delay = 300) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  };
+}

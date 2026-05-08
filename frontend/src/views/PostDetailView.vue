@@ -291,7 +291,7 @@ watch(
 
       <div :class="['post-detail-main', { 'post-detail-main-side': isSideLayout }]" style="margin-top: 18px;">
         <div v-if="post.cover" class="post-detail-media post-detail-hero-media">
-          <img :src="post.cover" :alt="post.title" class="post-detail-cover" />
+          <img :src="post.cover" :alt="post.title" class="post-detail-cover" loading="lazy" />
         </div>
         <div class="card post-detail-text markdown-wrap">
           <MarkdownContent :content="post.content" />

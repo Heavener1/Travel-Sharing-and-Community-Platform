@@ -76,6 +76,7 @@ if db_engine == "mysql":
             "USER": os.getenv("DJANGO_DB_USER", "remote"),
             "PASSWORD": os.getenv("DJANGO_DB_PASSWORD", "123456"),
             "OPTIONS": {"charset": "utf8mb4"},
+            "CONN_MAX_AGE": 300,
         }
     }
 else:
@@ -127,6 +128,14 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 10,
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "60/minute",
+        "user": "120/minute",
+    },
 }
 
 SIMPLE_JWT = {
