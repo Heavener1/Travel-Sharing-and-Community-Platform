@@ -196,7 +196,7 @@ const summarizePost = () => {
     body: { post_id: Number(route.params.id) },
     initialStatus: "正在整理帖子与评论内容...",
     doneMessage: "总结完成",
-    errorFallback: "AI 总结失败",
+    errorFallback: "智能总结失败",
   });
 };
 
@@ -221,7 +221,7 @@ watch(
     <div class="detail-sticky-bar">
       <div class="filter-bar filter-bar-tight">
         <button class="btn btn-secondary btn-compact" @click="scrollToSection('post-overview')">帖子正文</button>
-        <button class="btn btn-secondary btn-compact" @click="scrollToSection('post-summary')">AI 总结</button>
+        <button class="btn btn-secondary btn-compact" @click="scrollToSection('post-summary')">智能总结</button>
         <button class="btn btn-secondary btn-compact" @click="scrollToSection('post-comments')">全部评论</button>
         <button class="btn btn-secondary btn-compact" @click="scrollToSection('post-discuss')">参与讨论</button>
         <button class="btn theme-toggle-btn btn-compact" @click="backToTop">返回顶部</button>
@@ -267,11 +267,11 @@ watch(
     <article id="post-summary" class="panel post-detail-summary">
       <div class="split">
         <div>
-          <p class="eyebrow">AI 总结</p>
+          <p class="eyebrow">智能总结</p>
           <h3>一键提炼帖子内容和评论重点</h3>
         </div>
         <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated || summaryLoading" @click="summarizePost">
-          {{ summaryLoading ? "总结中..." : "AI 一键总结" }}
+          {{ summaryLoading ? "总结中..." : "智能一键总结" }}
         </button>
       </div>
       <div v-if="summaryLoading || summaryText || summaryStatus" class="stream-box mt-16">

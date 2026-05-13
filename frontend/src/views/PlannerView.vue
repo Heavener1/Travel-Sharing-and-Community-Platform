@@ -38,9 +38,9 @@ const askAI = () => {
   startAI({
     path: "/ai/travel-assistant/stream/",
     body: { ...form, draft_itinerary: draft },
-    initialStatus: "正在准备 AI 行程建议...",
+    initialStatus: "正在准备行程建议...",
     doneMessage: "生成完成",
-    errorFallback: "AI 生成失败",
+    errorFallback: "行程建议生成失败",
   });
 };
 </script>
@@ -87,16 +87,16 @@ const askAI = () => {
   <section class="panel">
     <div class="split">
       <div>
-        <p class="eyebrow">AI 行程顾问</p>
+        <p class="eyebrow">智能行程顾问</p>
         <h3>在基础行程上继续补足节奏、预算和玩法建议</h3>
       </div>
       <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated || aiLoading" @click="askAI">
-        {{ aiLoading ? "生成中..." : "让 AI 优化这份行程" }}
+        {{ aiLoading ? "生成中..." : "智能优化这份行程" }}
       </button>
     </div>
     <div v-if="aiLoading || aiAdvice || aiStatus" class="stream-box mt-14">
       <div class="stream-head">
-        <strong>AI 生成进度</strong>
+        <strong>生成进度</strong>
         <span>{{ aiProgress }}%</span>
       </div>
       <div class="progress-track">

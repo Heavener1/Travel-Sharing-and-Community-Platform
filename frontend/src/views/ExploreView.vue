@@ -196,7 +196,7 @@ onMounted(async () => {
   <section v-if="searchData.keyword" class="panel">
     <div class="split">
       <div>
-        <p class="eyebrow">AI 智能总结</p>
+        <p class="eyebrow">智能总结</p>
         <h3>综合检索与智能推荐结果</h3>
       </div>
       <div class="filter-bar filter-bar-tight">

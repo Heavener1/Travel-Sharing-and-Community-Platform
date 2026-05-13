@@ -93,7 +93,7 @@ const runAnalysis = () => {
     body: { destination_id: destination.value.id },
     initialStatus: "正在整理景点评价与评分数据...",
     doneMessage: "分析完成",
-    errorFallback: "AI 分析失败",
+    errorFallback: "智能分析失败",
   });
 };
 
@@ -165,9 +165,9 @@ watch(
 
         <div class="form-grid mt-18">
           <div class="split">
-            <p class="eyebrow">AI 分析</p>
+            <p class="eyebrow">智能分析</p>
             <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated || analysisLoading" @click="runAnalysis">
-              {{ analysisLoading ? "分析中..." : "AI 分析当前景点" }}
+              {{ analysisLoading ? "分析中..." : "智能分析当前景点" }}
             </button>
           </div>
           <div v-if="analysisLoading || analysisText || analysisStatus" class="stream-box">

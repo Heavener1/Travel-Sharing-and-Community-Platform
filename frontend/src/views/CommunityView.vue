@@ -135,7 +135,7 @@ const polishPost = async () => {
     body: { title: form.title, content: form.content, tags: form.tags },
     initialStatus: "正在润色内容...",
     doneMessage: "润色完成",
-    errorFallback: "AI 润色失败",
+    errorFallback: "智能润色失败",
   });
 
   if (!text) return;
@@ -289,7 +289,7 @@ onMounted(async () => {
 
         <div v-if="aiPolishLoading || aiPolishText || aiPolishStatus" class="stream-box">
           <div class="stream-head">
-            <strong>AI 润色进度</strong>
+            <strong>润色进度</strong>
             <span>{{ aiPolishProgress }}%</span>
           </div>
           <div class="progress-track">
@@ -345,7 +345,7 @@ onMounted(async () => {
 
         <div class="action-row">
           <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated || aiPolishLoading" @click="polishPost">
-            {{ aiPolishLoading ? "润色中..." : "AI 润色内容" }}
+            {{ aiPolishLoading ? "润色中..." : "智能润色内容" }}
           </button>
           <button class="btn btn-primary" @click="submitPost">提交发布</button>
         </div>
