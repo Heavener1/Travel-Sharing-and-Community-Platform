@@ -57,10 +57,10 @@ onMounted(async () => {
 <template>
   <section class="hero hero-rich">
     <article class="panel hero-copy">
-      <p class="eyebrow">一站式旅游毕业设计系统</p>
-      <h3>把景点探索、社区互动、智能搜索和 AI 行程建议整合成一个更完整的旅游平台。</h3>
+      <p class="eyebrow">一站式智能旅游平台</p>
+      <h3>把景点探索、社区互动、智能搜索和行程建议整合成一个更完整的旅游平台。</h3>
       <p class="muted">
-        项目基于 Django REST Framework 与 Vue 3 构建，结合 ElasticSearch、Redis、MinIO 与大模型能力，
+        项目基于 Django REST Framework 与 Vue 3 构建，结合 ElasticSearch、Redis、MinIO 与智能分析能力，
         既能完成基础旅游信息展示，也能提供更智能的问答、总结与规划体验。
       </p>
       <div class="action-row">
@@ -85,7 +85,7 @@ onMounted(async () => {
         </div>
       </div>
       <div class="hero-note">
-        <p class="muted">支持图文社区、景点评价、AI 问答、流式智能搜索与消息通知。</p>
+        <p class="muted">支持图文社区、景点评价、智能问答、流式搜索与消息通知。</p>
       </div>
     </article>
   </section>

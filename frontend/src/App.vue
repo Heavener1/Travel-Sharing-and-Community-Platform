@@ -201,9 +201,9 @@ onBeforeUnmount(() => {
     <main class="page">
       <section class="page-header page-header-rich">
         <div>
-          <p class="eyebrow">毕业设计演示系统</p>
+          <p class="eyebrow">旅游分享与交流平台</p>
           <h2>{{ routeTitle }}</h2>
-          <p class="muted page-subtitle">融合社区分享、景点探索、智能搜索与 AI 行程建议的一体化旅游平台。</p>
+          <p class="muted page-subtitle">融合社区分享、景点探索、智能搜索与行程建议的一体化旅游平台。</p>
         </div>
         <div class="profile-chip profile-chip-rich">
           <img v-if="authStore.user?.avatar" :src="authStore.user.avatar" alt="avatar" class="mini-avatar" />
