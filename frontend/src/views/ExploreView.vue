@@ -4,15 +4,16 @@ import { RouterLink } from "vue-router";
 
 import MarkdownContent from "../components/MarkdownContent.vue";
 import http from "../api/http";
-import { fetchFavoriteDestinationIds, toggleDestinationFavorite } from "../api/favorites";
 import { streamRequest } from "../api/stream";
 import { chinaRegions } from "../data/chinaRegions";
 import { useAuthStore } from "../stores/auth";
 import { useUiStore } from "../stores/ui";
-import { shareContent } from "../utils/collection";
+import { useDestinationFavorites } from "../composables/useSocialActions";
 
 const authStore = useAuthStore();
 const uiStore = useUiStore();
+
+const { favoriteIds: favoriteDestinationIds, syncFavoriteIds, isFavorite: isFavoriteDestination, toggleFavorite, shareItem: shareDestination } = useDestinationFavorites(authStore, uiStore);
 
 const keyword = ref("");
 const loading = ref(false);
@@ -22,7 +23,6 @@ const uploadModalOpen = ref(false);
 const uploadLoading = ref(false);
 const uploadError = ref("");
 const initialLoading = ref(true);
-const favoriteDestinationIds = ref([]);
 
 const searchFilter = reactive({
   source: "all",
@@ -96,28 +96,6 @@ const featuredResults = computed(() => {
   else filtered.sort((a, b) => Number(b.average_rating || b.score || 0) - Number(a.average_rating || a.score || 0));
   return filtered;
 });
-
-const isFavoriteDestination = (id) => favoriteDestinationIds.value.includes(id);
-
-const syncFavoriteIds = async () => {
-  favoriteDestinationIds.value = await fetchFavoriteDestinationIds(authStore.isAuthenticated);
-};
-
-const toggleFavorite = async (item) => {
-  const { favorited, ids } = await toggleDestinationFavorite(item.id, authStore.isAuthenticated);
-  favoriteDestinationIds.value = ids;
-  uiStore.pushToast(favorited ? `已收藏 ${item.name}` : `已取消收藏 ${item.name}`, "success");
-};
-
-const shareDestination = async (item) => {
-  await shareContent({
-    title: item.name,
-    path: `/explore/${item.id}`,
-    summary: item.summary,
-    onSuccess: () => uiStore.pushToast("景点链接已准备好", "success"),
-    onError: () => uiStore.pushToast("分享失败，请稍后再试"),
-  });
-};
 
 const resetUploadForm = () => {
   uploadForm.name = "";
@@ -206,7 +184,7 @@ onMounted(async () => {
         {{ loading ? "搜索中..." : "智能搜索" }}
       </button>
     </div>
-    <div class="stream-box stream-box-inline" style="margin-top: 14px;">
+    <div class="stream-box stream-box-inline mt-14">
       <strong>搜索进度</strong>
       <div class="progress-track">
         <div class="progress-bar" :style="{ width: `${progress}%` }"></div>
@@ -245,7 +223,7 @@ onMounted(async () => {
       <MarkdownContent :content="searchData.ai_summary" />
     </div>
 
-    <div class="form-grid" style="margin-top: 16px;">
+    <div class="form-grid mt-16">
       <article v-if="loading" v-for="item in skeletonCards" :key="`result-${item.id}`" class="card skeleton-card">
         <div class="skeleton-media"></div>
         <div class="skeleton-line skeleton-line-title"></div>
@@ -300,7 +278,7 @@ onMounted(async () => {
       <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated" @click="uploadModalOpen = true">上传景点</button>
     </div>
 
-    <div class="filter-bar" style="margin-top: 16px;">
+    <div class="filter-bar mt-16">
       <select v-model="searchFilter.province" class="select">
         <option value="all">全部省份</option>
         <option v-for="item in provinceOptions" :key="item.province" :value="item.province">{{ item.province }}</option>
@@ -313,7 +291,7 @@ onMounted(async () => {
       </select>
     </div>
 
-    <div class="list-grid" style="margin-top: 16px;">
+    <div class="list-grid mt-16">
       <article v-if="initialLoading" v-for="item in skeletonCards" :key="`featured-${item.id}`" class="card skeleton-card">
         <div class="skeleton-media"></div>
         <div class="skeleton-line skeleton-line-title"></div>

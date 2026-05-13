@@ -1340,3 +1340,8 @@ h2 {
     bottom: 16px;
   }
 }
+
+/* Spacing utilities */
+.mt-14 { margin-top: 14px; }
+.mt-16 { margin-top: 16px; }
+.mt-18 { margin-top: 18px; }

@@ -384,7 +384,7 @@ const clearAllFavorites = async (type) => {
           <p v-if="saveMessage" class="muted profile-feedback success-text">{{ saveMessage }}</p>
           <p v-if="saveError" class="muted profile-feedback">{{ saveError }}</p>
 
-          <div class="profile-form-grid" style="margin-top: 18px;">
+          <div class="profile-form-grid mt-18">
             <div class="profile-form-span-2 card avatar-upload-card">
               <label class="muted">上传头像</label>
               <div class="profile-avatar-upload-row">
@@ -427,7 +427,7 @@ const clearAllFavorites = async (type) => {
             <p class="muted">{{ favoriteLoading ? "加载中..." : `景点 ${favoriteSummary.destinations} · 帖子 ${favoriteSummary.posts}` }}</p>
           </div>
 
-          <div class="favorite-manager-grid" style="margin-top: 16px;">
+          <div class="favorite-manager-grid mt-16">
             <div class="card">
               <div class="split">
                 <div>
@@ -533,7 +533,7 @@ const clearAllFavorites = async (type) => {
               </div>
               <p class="muted">{{ dashboardLoading ? "加载中..." : `共 ${dashboard.stats.post_count} 篇` }}</p>
             </div>
-            <div class="form-grid" style="margin-top: 16px;">
+            <div class="form-grid mt-16">
               <div v-if="!dashboard.recent_posts.length" class="card muted">你还没有发布帖子，可以去旅行社区分享第一篇故事。</div>
               <article v-for="post in dashboard.recent_posts" :key="post.id" class="card">
                 <div class="split">
@@ -556,7 +556,7 @@ const clearAllFavorites = async (type) => {
               </div>
               <p class="muted">{{ dashboardLoading ? "加载中..." : `共 ${dashboard.stats.trip_count} 个` }}</p>
             </div>
-            <div class="form-grid" style="margin-top: 16px;">
+            <div class="form-grid mt-16">
               <div v-if="!dashboard.recent_trips.length" class="card muted">你还没有生成行程，去智能行程规划页面试试看吧。</div>
               <article v-for="trip in dashboard.recent_trips" :key="trip.id" class="card">
                 <div class="split">
@@ -579,7 +579,7 @@ const clearAllFavorites = async (type) => {
               </div>
               <p class="muted">{{ dashboardLoading ? "加载中..." : `共 ${dashboard.stats.review_count} 条` }}</p>
             </div>
-            <div class="form-grid" style="margin-top: 16px;">
+            <div class="form-grid mt-16">
               <div v-if="!dashboard.recent_reviews.length" class="card muted">你还没有评价景点，去景点详情页打个分吧。</div>
               <article v-for="review in dashboard.recent_reviews" :key="review.id" class="card">
                 <div class="split">

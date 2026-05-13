@@ -20,8 +20,8 @@ const currentTheme = ref(getStoredTheme());
 const captcha = reactive({ key: "", image: "" });
 
 const loginForm = reactive({
-  username: "demo",
-  password: "demo123456",
+  username: "",
+  password: "",
   captcha_key: "",
   captcha_code: "",
 });

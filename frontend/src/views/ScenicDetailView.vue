@@ -3,14 +3,16 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 
 import MarkdownContent from "../components/MarkdownContent.vue";
+import RelatedContent from "../components/RelatedContent.vue";
 import { useReadingProgress } from "../composables/useReadingProgress";
+import { useAIStream } from "../composables/useAIStream";
 import http from "../api/http";
-import { streamRequest } from "../api/stream";
 import { useAuthStore } from "../stores/auth";
 
 const route = useRoute();
 const authStore = useAuthStore();
 const { readingProgress } = useReadingProgress();
+const { loading: analysisLoading, progress: analysisProgress, status: analysisStatus, text: analysisText, start: startAnalysis } = useAIStream();
 
 const destination = ref(null);
 const loading = ref(false);
@@ -24,28 +26,10 @@ const reviewForm = reactive({
   rating: 5,
   content: "",
 });
-const analysisLoading = ref(false);
-const analysisProgress = ref(0);
-const analysisStatus = ref("");
-const analysisText = ref("");
 
 const maxRatingCount = computed(() => {
   if (!destination.value?.rating_distribution?.length) return 1;
   return Math.max(...destination.value.rating_distribution.map((item) => item.count), 1);
-});
-
-const relatedDestinations = computed(() => {
-  const list = allRelatedDestinations.value;
-  if (!list.length) return [];
-  const start = (relatedBatchIndex.value * 4) % list.length;
-  return Array.from({ length: Math.min(4, list.length) }, (_, index) => list[(start + index) % list.length]);
-});
-
-const relatedPosts = computed(() => {
-  const list = allRelatedPosts.value;
-  if (!list.length) return [];
-  const start = (relatedBatchIndex.value * 4) % list.length;
-  return Array.from({ length: Math.min(4, list.length) }, (_, index) => list[(start + index) % list.length]);
 });
 
 const nextRelatedBatch = () => {
@@ -102,39 +86,15 @@ const submitReview = async () => {
   }
 };
 
-const runAnalysis = async () => {
+const runAnalysis = () => {
   if (!destination.value) return;
-  analysisLoading.value = true;
-  analysisProgress.value = 0;
-  analysisStatus.value = "正在整理景点评价与评分数据...";
-  analysisText.value = "";
-  try {
-    await streamRequest({
-      path: "/ai/destination-analysis/stream/",
-      body: { destination_id: destination.value.id },
-      onEvent: (event, data) => {
-        if (event === "progress") {
-          analysisProgress.value = data.progress || 0;
-          analysisStatus.value = data.message || "";
-        }
-        if (event === "content") {
-          analysisText.value = data.content || "";
-        }
-        if (event === "done") {
-          analysisText.value = data.content || analysisText.value;
-          analysisProgress.value = 100;
-          analysisStatus.value = "分析完成";
-        }
-        if (event === "error") {
-          analysisStatus.value = data.detail || "AI 分析失败";
-        }
-      },
-    });
-  } catch (error) {
-    analysisStatus.value = error.message || "AI 分析失败";
-  } finally {
-    analysisLoading.value = false;
-  }
+  startAnalysis({
+    path: "/ai/destination-analysis/stream/",
+    body: { destination_id: destination.value.id },
+    initialStatus: "正在整理景点评价与评分数据...",
+    doneMessage: "分析完成",
+    errorFallback: "AI 分析失败",
+  });
 };
 
 onMounted(fetchDestination);
@@ -175,7 +135,7 @@ watch(
           <span v-for="tag in destination.tag_list" :key="tag" class="tag">{{ tag }}</span>
         </div>
 
-        <div class="stats" style="margin-top: 18px;">
+        <div class="stats mt-18">
           <div class="card">
             <div class="metric">{{ destination.average_rating }}</div>
             <p class="muted">平均评分</p>
@@ -203,7 +163,7 @@ watch(
           </div>
         </div>
 
-        <div class="form-grid" style="margin-top: 18px;">
+        <div class="form-grid mt-18">
           <div class="split">
             <p class="eyebrow">AI 分析</p>
             <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated || analysisLoading" @click="runAnalysis">
@@ -227,42 +187,16 @@ watch(
       </article>
     </section>
 
-    <article id="scenic-related" class="panel">
-      <div class="split">
-        <div>
-          <p class="eyebrow">相关推荐</p>
-          <h3>和这个景点相关的内容继续看</h3>
-        </div>
-        <button class="btn btn-secondary btn-compact" :disabled="!allRelatedDestinations.length && !allRelatedPosts.length" @click="nextRelatedBatch">
-          换一批
-        </button>
-      </div>
-      <section class="grid-2 related-grid" style="margin-top: 16px;">
-        <div class="card">
-          <p class="eyebrow">相似景点</p>
-          <div v-if="relatedLoading" class="muted">正在整理相关推荐...</div>
-          <div v-else-if="!relatedDestinations.length" class="muted">暂时还没有匹配到相似景点。</div>
-          <div v-else class="form-grid">
-            <RouterLink v-for="item in relatedDestinations" :key="item.id" :to="`/explore/${item.id}`" class="card related-link-card">
-              <strong>{{ item.name }}</strong>
-              <p class="muted">{{ item.city }} · {{ item.province }}</p>
-            </RouterLink>
-          </div>
-        </div>
-
-        <div class="card">
-          <p class="eyebrow">相关帖子</p>
-          <div v-if="relatedLoading" class="muted">正在整理相关推荐...</div>
-          <div v-else-if="!relatedPosts.length" class="muted">暂时还没有关联的旅行故事。</div>
-          <div v-else class="form-grid">
-            <RouterLink v-for="item in relatedPosts" :key="item.id" :to="`/community/${item.id}`" class="card related-link-card">
-              <strong>{{ item.title }}</strong>
-              <p class="muted">{{ item.author_name }} · {{ item.destination_name || "未关联景点" }}</p>
-            </RouterLink>
-          </div>
-        </div>
-      </section>
-    </article>
+    <div id="scenic-related">
+      <RelatedContent
+        :related-destinations="allRelatedDestinations"
+        :related-posts="allRelatedPosts"
+        :loading="relatedLoading"
+        title="和这个景点相关的内容继续看"
+        variant="scenic"
+        @next-batch="nextRelatedBatch"
+      />
+    </div>
 
     <section class="grid-2">
       <article id="scenic-reviews" class="panel">

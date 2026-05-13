@@ -159,7 +159,7 @@ onMounted(() => {
         </div>
         <span class="pill">新增 {{ batchResult.created_count }}</span>
       </div>
-      <div class="form-grid" style="margin-top: 16px;">
+      <div class="form-grid mt-16">
         <div v-for="(item, index) in (batchResult.items || [])" :key="index" class="card">
           <template v-if="batchResult.task_type === 'accounts'">
             <strong>{{ item.username }}</strong>
@@ -187,7 +187,7 @@ onMounted(() => {
           <p class="muted">{{ loading ? "加载中..." : `共 ${dashboard.recent_trends.length} 天数据` }}</p>
         </div>
 
-        <div class="form-grid" style="margin-top: 18px;">
+        <div class="form-grid mt-18">
           <div v-if="!dashboard.recent_trends.length" class="card muted">当前暂无近 7 天趋势数据。</div>
           <article v-for="item in dashboard.recent_trends" :key="item.date" class="card">
             <div class="split">
@@ -230,7 +230,7 @@ onMounted(() => {
           <p class="muted">{{ loading ? "加载中..." : `共 ${dashboard.timeline.length} 天数据` }}</p>
         </div>
 
-        <div class="form-grid" style="margin-top: 18px;">
+        <div class="form-grid mt-18">
           <div v-if="!dashboard.timeline.length" class="card muted">当前暂无帖子统计数据。</div>
           <article v-for="item in dashboard.timeline" :key="item.date" class="card">
             <div class="split">

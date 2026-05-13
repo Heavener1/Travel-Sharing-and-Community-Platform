@@ -3,10 +3,12 @@ import { computed, reactive, ref } from "vue";
 
 import MarkdownContent from "../components/MarkdownContent.vue";
 import http from "../api/http";
-import { streamRequest } from "../api/stream";
+import { useAIStream } from "../composables/useAIStream";
 import { useAuthStore } from "../stores/auth";
 
 const authStore = useAuthStore();
+const { loading: aiLoading, progress: aiProgress, status: aiStatus, text: aiAdvice, start: startAI } = useAIStream();
+
 const form = reactive({
   departure_city: "上海",
   destination_city: "杭州",
@@ -16,10 +18,6 @@ const form = reactive({
 });
 
 const result = ref(null);
-const aiAdvice = ref("");
-const aiLoading = ref(false);
-const aiProgress = ref(0);
-const aiStatus = ref("");
 const plannerError = ref("");
 
 const itineraryDays = computed(() => Object.entries(result.value?.itinerary || {}));
@@ -35,39 +33,15 @@ const generatePlan = async () => {
   }
 };
 
-const askAI = async () => {
-  aiLoading.value = true;
-  aiProgress.value = 0;
-  aiStatus.value = "正在准备 AI 行程建议...";
-  aiAdvice.value = "";
-  try {
-    const draft = result.value ? JSON.stringify(result.value.itinerary) : "";
-    await streamRequest({
-      path: "/ai/travel-assistant/stream/",
-      body: { ...form, draft_itinerary: draft },
-      onEvent: (event, data) => {
-        if (event === "progress") {
-          aiProgress.value = data.progress || 0;
-          aiStatus.value = data.message || "";
-        }
-        if (event === "content") {
-          aiAdvice.value = data.content || "";
-        }
-        if (event === "done") {
-          aiAdvice.value = data.content || aiAdvice.value;
-          aiProgress.value = 100;
-          aiStatus.value = "生成完成";
-        }
-        if (event === "error") {
-          aiStatus.value = data.detail || "AI 生成失败";
-        }
-      },
-    });
-  } catch (error) {
-    aiStatus.value = error.message || "AI 生成失败";
-  } finally {
-    aiLoading.value = false;
-  }
+const askAI = () => {
+  const draft = result.value ? JSON.stringify(result.value.itinerary) : "";
+  startAI({
+    path: "/ai/travel-assistant/stream/",
+    body: { ...form, draft_itinerary: draft },
+    initialStatus: "正在准备 AI 行程建议...",
+    doneMessage: "生成完成",
+    errorFallback: "AI 生成失败",
+  });
 };
 </script>
 
@@ -120,7 +94,7 @@ const askAI = async () => {
         {{ aiLoading ? "生成中..." : "让 AI 优化这份行程" }}
       </button>
     </div>
-    <div v-if="aiLoading || aiAdvice || aiStatus" class="stream-box" style="margin-top: 14px;">
+    <div v-if="aiLoading || aiAdvice || aiStatus" class="stream-box mt-14">
       <div class="stream-head">
         <strong>AI 生成进度</strong>
         <span>{{ aiProgress }}%</span>

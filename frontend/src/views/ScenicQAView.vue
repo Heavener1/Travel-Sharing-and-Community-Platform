@@ -2,8 +2,8 @@
 import { onMounted, reactive, ref } from "vue";
 
 import MarkdownContent from "../components/MarkdownContent.vue";
+import { useAIStream } from "../composables/useAIStream";
 import http from "../api/http";
-import { streamRequest } from "../api/stream";
 import { useAuthStore } from "../stores/auth";
 
 const authStore = useAuthStore();
@@ -13,63 +13,37 @@ const form = reactive({
   question: "",
 });
 
-const answerText = ref("");
-const answerProgress = ref(0);
-const answerStatus = ref("");
 const answerMeta = ref({
   destination_name: "",
   destination_city: "",
 });
-const answerLoading = ref(false);
+const { loading: answerLoading, progress: answerProgress, status: answerStatus, text: answerText, start: startQA } = useAIStream();
 
 const fetchDestinations = async () => {
   const { data } = await http.get("/travel/destinations/");
   destinations.value = data.results ?? data;
 };
 
-const askQuestion = async () => {
-  answerLoading.value = true;
-  answerText.value = "";
-  answerProgress.value = 0;
-  answerStatus.value = "正在检索景点资料...";
+const askQuestion = () => {
   answerMeta.value = { destination_name: "", destination_city: "" };
-
-  try {
-    await streamRequest({
-      path: "/ai/scenic-qa/stream/",
-      body: {
-        destination_name: form.destination_name,
-        question: form.question,
-      },
-      onEvent: (event, data) => {
-        if (event === "destination") {
-          answerMeta.value = {
-            destination_name: data.destination_name || "",
-            destination_city: data.destination_city || "",
-          };
-        }
-        if (event === "progress") {
-          answerProgress.value = data.progress || 0;
-          answerStatus.value = data.message || "";
-        }
-        if (event === "content") {
-          answerText.value = data.content || "";
-        }
-        if (event === "done") {
-          answerText.value = data.content || answerText.value;
-          answerProgress.value = 100;
-          answerStatus.value = "问答完成";
-        }
-        if (event === "error") {
-          answerStatus.value = data.detail || "景点问答失败";
-        }
-      },
-    });
-  } catch (error) {
-    answerStatus.value = error.message || "景点问答失败";
-  } finally {
-    answerLoading.value = false;
-  }
+  startQA({
+    path: "/ai/scenic-qa/stream/",
+    body: {
+      destination_name: form.destination_name,
+      question: form.question,
+    },
+    initialStatus: "正在检索景点资料...",
+    doneMessage: "问答完成",
+    errorFallback: "景点问答失败",
+    onExtraEvent: (event, data) => {
+      if (event === "destination") {
+        answerMeta.value = {
+          destination_name: data.destination_name || "",
+          destination_city: data.destination_city || "",
+        };
+      }
+    },
+  });
 };
 
 onMounted(fetchDestinations);
@@ -114,15 +88,15 @@ onMounted(fetchDestinations);
         <p class="muted">{{ answerStatus || "等待提问" }}</p>
       </div>
 
-      <div v-if="answerMeta.destination_name" class="card" style="margin-top: 14px;">
+      <div v-if="answerMeta.destination_name" class="card mt-14">
         <h3>{{ answerMeta.destination_name }}</h3>
         <p class="muted">{{ answerMeta.destination_city }}</p>
       </div>
 
-      <div v-if="answerText" class="card ai-scroller" style="margin-top: 14px;">
+      <div v-if="answerText" class="card ai-scroller mt-14">
         <MarkdownContent :content="answerText" />
       </div>
-      <p v-else class="muted" style="margin-top: 14px;">提交问题后，这里会实时显示针对景点的智能回答。</p>
+      <p v-else class="muted mt-14">提交问题后，这里会实时显示针对景点的智能回答。</p>
     </article>
   </section>
 </template>

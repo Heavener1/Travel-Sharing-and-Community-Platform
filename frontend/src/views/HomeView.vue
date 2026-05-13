@@ -3,15 +3,15 @@ import { computed, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 
 import http from "../api/http";
-import { fetchFavoriteDestinationIds, toggleDestinationFavorite } from "../api/favorites";
+import { useDestinationFavorites } from "../composables/useSocialActions";
 import { useAuthStore } from "../stores/auth";
 import { useUiStore } from "../stores/ui";
-import { shareContent } from "../utils/collection";
 
 const authStore = useAuthStore();
 const uiStore = useUiStore();
 
-const favoriteDestinationIds = ref([]);
+const { favoriteIds, syncFavoriteIds, isFavorite, toggleFavorite, shareItem } = useDestinationFavorites(authStore, uiStore);
+
 const dashboard = ref({
   destination_count: 0,
   hidden_gem_count: 0,
@@ -24,27 +24,6 @@ const loadError = ref("");
 const skeletonCards = Array.from({ length: 3 }, (_, index) => ({ id: index }));
 
 const recommendationCards = computed(() => recommendations.value || []);
-const isFavoriteDestination = (id) => favoriteDestinationIds.value.includes(id);
-
-const syncFavoriteIds = async () => {
-  favoriteDestinationIds.value = await fetchFavoriteDestinationIds(authStore.isAuthenticated);
-};
-
-const toggleFavorite = async (item) => {
-  const { favorited, ids } = await toggleDestinationFavorite(item.id, authStore.isAuthenticated);
-  favoriteDestinationIds.value = ids;
-  uiStore.pushToast(favorited ? `已收藏 ${item.name}` : `已取消收藏 ${item.name}`, "success");
-};
-
-const shareDestination = async (item) => {
-  await shareContent({
-    title: item.name,
-    path: `/explore/${item.id}`,
-    summary: item.summary,
-    onSuccess: () => uiStore.pushToast("景点链接已准备好", "success"),
-    onError: () => uiStore.pushToast("分享失败，请稍后再试"),
-  });
-};
 
 const fetchHomeData = async () => {
   loading.value = true;
@@ -146,9 +125,9 @@ onMounted(async () => {
           <div class="action-row card-action-row">
             <RouterLink :to="`/explore/${item.id}`" class="btn btn-secondary">查看详情</RouterLink>
             <button class="btn btn-secondary" @click="toggleFavorite(item)">
-              {{ isFavoriteDestination(item.id) ? "取消收藏" : "收藏" }}
+              {{ isFavorite(item.id) ? "取消收藏" : "收藏" }}
             </button>
-            <button class="btn btn-secondary" @click="shareDestination(item)">分享</button>
+            <button class="btn btn-secondary" @click="shareItem(item)">分享</button>
           </div>
         </div>
       </div>
@@ -182,9 +161,9 @@ onMounted(async () => {
           <div class="action-row card-action-row">
             <RouterLink :to="`/explore/${item.id}`" class="btn btn-secondary">查看详情</RouterLink>
             <button class="btn btn-secondary" @click="toggleFavorite(item)">
-              {{ isFavoriteDestination(item.id) ? "取消收藏" : "收藏" }}
+              {{ isFavorite(item.id) ? "取消收藏" : "收藏" }}
             </button>
-            <button class="btn btn-secondary" @click="shareDestination(item)">分享</button>
+            <button class="btn btn-secondary" @click="shareItem(item)">分享</button>
           </div>
         </div>
       </div>

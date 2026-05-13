@@ -3,20 +3,20 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 
 import MarkdownContent from "../components/MarkdownContent.vue";
+import { useAIStream } from "../composables/useAIStream";
+import { usePostFavorites } from "../composables/useSocialActions";
 import http from "../api/http";
-import { fetchFavoritePostIds, togglePostFavorite } from "../api/favorites";
-import { streamRequest } from "../api/stream";
 import { useAuthStore } from "../stores/auth";
 import { useUiStore } from "../stores/ui";
-import { shareContent } from "../utils/collection";
 
 const authStore = useAuthStore();
 const uiStore = useUiStore();
+const { loading: aiPolishLoading, progress: aiPolishProgress, status: aiPolishStatus, text: aiPolishText, start: startPolish } = useAIStream();
+const { favoriteIds: favoritePostIds, syncFavoriteIds, isFavorite: isPostFavorite, toggleFavorite, sharePost } = usePostFavorites(authStore, uiStore);
 
 const posts = ref([]);
 const destinations = ref([]);
 const loading = ref(true);
-const favoritePostIds = ref([]);
 const form = reactive({
   title: "",
   content: "",
@@ -36,10 +36,6 @@ const feedFilter = reactive({
   destination: "all",
   sort: "latest",
 });
-const aiPolishLoading = ref(false);
-const aiPolishProgress = ref(0);
-const aiPolishStatus = ref("");
-const aiPolishText = ref("");
 const aiComparison = reactive({
   original: { title: "", tags: "", content: "" },
   polished: { title: "", tags: "", content: "" },
@@ -56,12 +52,6 @@ const filteredPosts = computed(() => {
   if (feedFilter.sort === "comments") sorted.sort((a, b) => b.comment_count - a.comment_count);
   return sorted;
 });
-
-const isPostFavorite = (postId) => favoritePostIds.value.includes(postId);
-
-const syncFavoriteIds = async () => {
-  favoritePostIds.value = await fetchFavoritePostIds(authStore.isAuthenticated);
-};
 
 const fetchPosts = async () => {
   loading.value = true;
@@ -130,10 +120,6 @@ const uploadCover = async (event) => {
 };
 
 const polishPost = async () => {
-  aiPolishLoading.value = true;
-  aiPolishProgress.value = 0;
-  aiPolishStatus.value = "正在润色内容...";
-  aiPolishText.value = "";
   aiComparison.original.title = form.title;
   aiComparison.original.tags = form.tags;
   aiComparison.original.content = form.content;
@@ -144,66 +130,31 @@ const polishPost = async () => {
   aiComparison.selected.tags = "original";
   aiComparison.selected.content = "original";
 
-  try {
-    await streamRequest({
-      path: "/ai/polish-post/stream/",
-      body: { title: form.title, content: form.content, tags: form.tags },
-      onEvent: (event, data) => {
-        if (event === "progress") {
-          aiPolishProgress.value = data.progress || 0;
-          aiPolishStatus.value = data.message || "";
-        }
-        if (event === "content") {
-          aiPolishText.value = data.content || "";
-        }
-        if (event === "done") {
-          aiPolishText.value = data.content || aiPolishText.value;
-          aiPolishProgress.value = 100;
-          aiPolishStatus.value = "润色完成";
-        }
-        if (event === "error") {
-          aiPolishStatus.value = data.detail || "AI 润色失败";
-        }
-      },
-    });
+  const text = await startPolish({
+    path: "/ai/polish-post/stream/",
+    body: { title: form.title, content: form.content, tags: form.tags },
+    initialStatus: "正在润色内容...",
+    doneMessage: "润色完成",
+    errorFallback: "AI 润色失败",
+  });
 
-    const text = aiPolishText.value || "";
-    const titleMatch = text.match(/标题[:：]\s*(.*)/);
-    const contentMatch = text.match(/正文[:：]\s*([\s\S]*?)标签建议[:：]/);
-    const tagsMatch = text.match(/标签建议[:：]\s*(.*)/);
-    aiComparison.polished.title = titleMatch ? titleMatch[1].trim() : aiComparison.original.title;
-    aiComparison.polished.content = contentMatch ? contentMatch[1].trim() : aiComparison.original.content;
-    aiComparison.polished.tags = tagsMatch ? tagsMatch[1].trim() : aiComparison.original.tags;
-    aiComparison.selected.title = aiComparison.polished.title && aiComparison.polished.title !== aiComparison.original.title ? "polished" : "original";
-    aiComparison.selected.tags = aiComparison.polished.tags && aiComparison.polished.tags !== aiComparison.original.tags ? "polished" : "original";
-    aiComparison.selected.content = aiComparison.polished.content && aiComparison.polished.content !== aiComparison.original.content ? "polished" : "original";
-    applySelectedPolish();
-  } catch (error) {
-    aiPolishStatus.value = error.message || "AI 润色失败";
-  } finally {
-    aiPolishLoading.value = false;
-  }
+  if (!text) return;
+
+  const titleMatch = text.match(/标题[:：]\s*(.*)/);
+  const contentMatch = text.match(/正文[:：]\s*([\s\S]*?)标签建议[:：]/);
+  const tagsMatch = text.match(/标签建议[:：]\s*(.*)/);
+  aiComparison.polished.title = titleMatch ? titleMatch[1].trim() : aiComparison.original.title;
+  aiComparison.polished.content = contentMatch ? contentMatch[1].trim() : aiComparison.original.content;
+  aiComparison.polished.tags = tagsMatch ? tagsMatch[1].trim() : aiComparison.original.tags;
+  aiComparison.selected.title = aiComparison.polished.title && aiComparison.polished.title !== aiComparison.original.title ? "polished" : "original";
+  aiComparison.selected.tags = aiComparison.polished.tags && aiComparison.polished.tags !== aiComparison.original.tags ? "polished" : "original";
+  aiComparison.selected.content = aiComparison.polished.content && aiComparison.polished.content !== aiComparison.original.content ? "polished" : "original";
+  applySelectedPolish();
 };
 
 const toggleLike = async (postId) => {
   await http.post(`/social/posts/${postId}/like/`);
   await fetchPosts();
-};
-
-const toggleFavorite = async (post) => {
-  const { favorited, ids } = await togglePostFavorite(post.id, authStore.isAuthenticated);
-  favoritePostIds.value = ids;
-  uiStore.pushToast(favorited ? `已收藏《${post.title}》` : `已取消收藏《${post.title}》`, "success");
-};
-
-const sharePost = async (post) => {
-  await shareContent({
-    title: post.title,
-    path: `/community/${post.id}`,
-    summary: post.content_preview,
-    onSuccess: () => uiStore.pushToast("分享链接已准备好", "success"),
-    onError: () => uiStore.pushToast("分享失败，请稍后再试"),
-  });
 };
 
 const openCommentModal = (postId) => {

@@ -3,14 +3,16 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 
 import MarkdownContent from "../components/MarkdownContent.vue";
+import RelatedContent from "../components/RelatedContent.vue";
 import { useReadingProgress } from "../composables/useReadingProgress";
+import { useAIStream } from "../composables/useAIStream";
 import http from "../api/http";
-import { streamRequest } from "../api/stream";
 import { useAuthStore } from "../stores/auth";
 
 const route = useRoute();
 const authStore = useAuthStore();
 const { readingProgress } = useReadingProgress();
+const { loading: summaryLoading, progress: summaryProgress, status: summaryStatus, text: summaryText, start: startSummary } = useAIStream();
 
 const post = ref(null);
 const loading = ref(false);
@@ -35,28 +37,10 @@ const editForm = reactive({
   tags: "",
 });
 const editCoverPreview = ref("");
-const summaryLoading = ref(false);
-const summaryProgress = ref(0);
-const summaryStatus = ref("");
-const summaryText = ref("");
 const coverLayout = ref("stack");
 
 const canEdit = computed(() => authStore.isAuthenticated && post.value?.author === authStore.user?.id);
 const isSideLayout = computed(() => coverLayout.value === "side");
-
-const relatedPosts = computed(() => {
-  const list = allRelatedPosts.value;
-  if (!list.length) return [];
-  const start = (relatedBatchIndex.value * 4) % list.length;
-  return Array.from({ length: Math.min(4, list.length) }, (_, index) => list[(start + index) % list.length]);
-});
-
-const relatedDestinations = computed(() => {
-  const list = allRelatedDestinations.value;
-  if (!list.length) return [];
-  const start = (relatedBatchIndex.value * 3) % list.length;
-  return Array.from({ length: Math.min(3, list.length) }, (_, index) => list[(start + index) % list.length]);
-});
 
 const scrollToSection = (id) => {
   const element = document.getElementById(id);
@@ -206,40 +190,14 @@ const submitReply = async () => {
   }
 };
 
-const summarizePost = async () => {
-  summaryLoading.value = true;
-  summaryProgress.value = 0;
-  summaryStatus.value = "正在整理帖子与评论内容...";
-  summaryText.value = "";
-  try {
-    await streamRequest({
-      path: "/ai/post-summary/stream/",
-      body: {
-        post_id: Number(route.params.id),
-      },
-      onEvent: (event, data) => {
-        if (event === "progress") {
-          summaryProgress.value = data.progress || 0;
-          summaryStatus.value = data.message || "";
-        }
-        if (event === "content") {
-          summaryText.value = data.content || "";
-        }
-        if (event === "done") {
-          summaryText.value = data.content || summaryText.value;
-          summaryProgress.value = 100;
-          summaryStatus.value = "总结完成";
-        }
-        if (event === "error") {
-          summaryStatus.value = data.detail || "AI 总结失败";
-        }
-      },
-    });
-  } catch (error) {
-    summaryStatus.value = error.message || "AI 总结失败";
-  } finally {
-    summaryLoading.value = false;
-  }
+const summarizePost = () => {
+  startSummary({
+    path: "/ai/post-summary/stream/",
+    body: { post_id: Number(route.params.id) },
+    initialStatus: "正在整理帖子与评论内容...",
+    doneMessage: "总结完成",
+    errorFallback: "AI 总结失败",
+  });
 };
 
 onMounted(async () => {
@@ -289,7 +247,7 @@ watch(
         </div>
       </div>
 
-      <div :class="['post-detail-main', { 'post-detail-main-side': isSideLayout }]" style="margin-top: 18px;">
+      <div :class="['post-detail-main', { 'post-detail-main-side': isSideLayout }]" class="mt-18">
         <div v-if="post.cover" class="post-detail-media post-detail-hero-media">
           <img :src="post.cover" :alt="post.title" class="post-detail-cover" />
         </div>
@@ -316,7 +274,7 @@ watch(
           {{ summaryLoading ? "总结中..." : "AI 一键总结" }}
         </button>
       </div>
-      <div v-if="summaryLoading || summaryText || summaryStatus" class="stream-box" style="margin-top: 16px;">
+      <div v-if="summaryLoading || summaryText || summaryStatus" class="stream-box mt-16">
         <div class="stream-head">
           <strong>总结进度</strong>
           <span>{{ summaryProgress }}%</span>
@@ -331,42 +289,14 @@ watch(
       </div>
     </article>
 
-    <article class="panel">
-      <div class="split">
-        <div>
-          <p class="eyebrow">相关推荐</p>
-          <h3>继续延展这篇内容相关的阅读路径</h3>
-        </div>
-        <button class="btn btn-secondary btn-compact" :disabled="!allRelatedPosts.length && !allRelatedDestinations.length" @click="nextRelatedBatch">
-          换一批
-        </button>
-      </div>
-      <section class="grid-2 related-grid" style="margin-top: 16px;">
-        <div class="card">
-          <p class="eyebrow">相似帖子</p>
-          <div v-if="relatedLoading" class="muted">正在整理相关推荐...</div>
-          <div v-else-if="!relatedPosts.length" class="muted">暂时还没有匹配到更相关的帖子。</div>
-          <div v-else class="form-grid">
-            <RouterLink v-for="item in relatedPosts" :key="item.id" :to="`/community/${item.id}`" class="card related-link-card">
-              <strong>{{ item.title }}</strong>
-              <p class="muted">{{ item.author_name }} · {{ item.destination_name || "未关联景点" }}</p>
-            </RouterLink>
-          </div>
-        </div>
-
-        <div class="card">
-          <p class="eyebrow">关联景点</p>
-          <div v-if="relatedLoading" class="muted">正在整理相关推荐...</div>
-          <div v-else-if="!relatedDestinations.length" class="muted">暂时还没有关联景点推荐。</div>
-          <div v-else class="form-grid">
-            <RouterLink v-for="item in relatedDestinations" :key="item.id" :to="`/explore/${item.id}`" class="card related-link-card">
-              <strong>{{ item.name }}</strong>
-              <p class="muted">{{ item.city }} · {{ item.province }}</p>
-            </RouterLink>
-          </div>
-        </div>
-      </section>
-    </article>
+    <RelatedContent
+      :related-destinations="allRelatedDestinations"
+      :related-posts="allRelatedPosts"
+      :loading="relatedLoading"
+      title="继续延展这篇内容相关的阅读路径"
+      variant="post"
+      @next-batch="nextRelatedBatch"
+    />
 
     <section class="grid-2 post-discussion-grid">
       <article id="post-comments" class="panel">
@@ -382,10 +312,10 @@ watch(
                 <p class="muted">{{ comment.created_at }}</p>
               </div>
             </div>
-            <div class="action-row" style="margin-top: 12px;">
+            <div class="action-row mt-14">
               <button class="btn btn-secondary" :disabled="!authStore.isAuthenticated" @click="openReplyModal(comment.id)">回复</button>
             </div>
-            <div v-if="comment.replies?.length" class="form-grid reply-list" style="margin-top: 14px;">
+            <div v-if="comment.replies?.length" class="form-grid reply-list mt-14">
               <div v-for="reply in comment.replies" :key="reply.id" class="comment-line reply-card">
                 <img v-if="reply.author_avatar" :src="reply.author_avatar" alt="reply avatar" class="author-avatar small-avatar" />
                 <div class="comment-copy">
