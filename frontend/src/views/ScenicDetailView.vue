@@ -219,7 +219,7 @@ watch(
               <div class="progress-bar" :style="{ width: `${analysisProgress}%` }"></div>
             </div>
             <p class="muted">{{ analysisStatus }}</p>
-            <div v-if="analysisText" class="card markdown-wrap">
+            <div v-if="analysisText" class="card markdown-wrap ai-scroller">
               <MarkdownContent :content="analysisText" />
             </div>
           </div>
