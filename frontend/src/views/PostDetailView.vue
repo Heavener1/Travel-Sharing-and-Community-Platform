@@ -163,7 +163,11 @@ const submitComment = async () => {
 
 const toggleLike = async () => {
   if (!authStore.isAuthenticated) return;
-  await http.post(`/social/posts/${route.params.id}/like/`);
+  try {
+    await http.post(`/social/posts/${route.params.id}/like/`);
+  } catch {
+    return;
+  }
   await fetchPost();
 };
 

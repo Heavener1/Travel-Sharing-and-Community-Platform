@@ -153,7 +153,11 @@ const polishPost = async () => {
 };
 
 const toggleLike = async (postId) => {
-  await http.post(`/social/posts/${postId}/like/`);
+  try {
+    await http.post(`/social/posts/${postId}/like/`);
+  } catch {
+    return;
+  }
   await fetchPosts();
 };
 

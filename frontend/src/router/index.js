@@ -5,6 +5,9 @@ import { useUiStore } from "../stores/ui";
 
 const router = createRouter({
   history: createWebHistory(),
+  scrollBehavior() {
+    return { top: 0 };
+  },
   routes: [
     { path: "/", component: () => import("../views/HomeView.vue"), meta: { title: "首页概览" } },
     { path: "/explore", component: () => import("../views/ExploreView.vue"), meta: { title: "景点探索" } },
@@ -26,11 +29,14 @@ router.beforeEach((to, from, next) => {
   next();
 });
 
-router.afterEach(() => {
+router.afterEach((to) => {
   const uiStore = useUiStore(pinia);
   window.setTimeout(() => {
     uiStore.setRouteLoading(false);
   }, 180);
+  if (to.meta.title) {
+    document.title = `${to.meta.title} | 旅迹共鸣`;
+  }
 });
 
 export default router;

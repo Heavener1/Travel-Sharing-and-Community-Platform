@@ -284,7 +284,7 @@ onBeforeUnmount(() => {
           <input v-model="loginForm.username" class="input" placeholder="用户名" />
           <input v-model="loginForm.password" class="input" type="password" placeholder="密码" />
           <div class="captcha-row">
-            <input v-model="loginForm.captcha_code" class="input" placeholder="图形验证码" />
+            <input v-model="loginForm.captcha_code" class="input" placeholder="图形验证码" @keyup.enter="submitLogin" />
             <img :src="captcha.image" alt="captcha" class="captcha-image" @click="refreshCaptcha" />
           </div>
           <button class="btn btn-primary" @click="submitLogin">登录</button>
@@ -297,7 +297,7 @@ onBeforeUnmount(() => {
           <input v-model="registerForm.email" class="input" placeholder="邮箱" />
           <input v-model="registerForm.password" class="input" type="password" placeholder="密码" />
           <div class="captcha-row">
-            <input v-model="registerForm.captcha_code" class="input" placeholder="图形验证码" />
+            <input v-model="registerForm.captcha_code" class="input" placeholder="图形验证码" @keyup.enter="submitRegister" />
             <img :src="captcha.image" alt="captcha" class="captcha-image" @click="refreshCaptcha" />
           </div>
           <button class="btn btn-primary" @click="submitRegister">注册并登录</button>
