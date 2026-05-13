@@ -1088,6 +1088,12 @@ h2 {
   overflow: hidden;
 }
 
+.ai-scroller {
+  max-height: 420px;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
+
 .skeleton-card {
   overflow: hidden;
 }

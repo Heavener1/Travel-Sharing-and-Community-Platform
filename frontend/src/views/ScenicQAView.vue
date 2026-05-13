@@ -119,7 +119,7 @@ onMounted(fetchDestinations);
         <p class="muted">{{ answerMeta.destination_city }}</p>
       </div>
 
-      <div v-if="answerText" class="card" style="margin-top: 14px;">
+      <div v-if="answerText" class="card ai-scroller" style="margin-top: 14px;">
         <MarkdownContent :content="answerText" />
       </div>
       <p v-else class="muted" style="margin-top: 14px;">提交问题后，这里会实时显示针对景点的智能回答。</p>

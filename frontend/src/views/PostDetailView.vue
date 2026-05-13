@@ -325,7 +325,7 @@ watch(
           <div class="progress-bar" :style="{ width: `${summaryProgress}%` }"></div>
         </div>
         <p class="muted">{{ summaryStatus }}</p>
-        <div v-if="summaryText" class="card markdown-wrap">
+        <div v-if="summaryText" class="card markdown-wrap ai-scroller">
           <MarkdownContent :content="summaryText" />
         </div>
       </div>

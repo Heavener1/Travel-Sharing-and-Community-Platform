@@ -129,7 +129,7 @@ const askAI = async () => {
         <div class="progress-bar" :style="{ width: `${aiProgress}%` }"></div>
       </div>
       <p class="muted">{{ aiStatus }}</p>
-      <div v-if="aiAdvice" class="card markdown-wrap">
+      <div v-if="aiAdvice" class="card markdown-wrap ai-scroller">
         <MarkdownContent :content="aiAdvice" />
       </div>
     </div>

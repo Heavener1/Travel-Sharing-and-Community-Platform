@@ -241,7 +241,7 @@ onMounted(async () => {
     </div>
 
     <p v-if="searchData.ai_error" class="muted">{{ searchData.ai_error }}</p>
-    <div v-if="searchData.ai_summary" class="card markdown-wrap" style="margin-top: 14px;">
+    <div v-if="searchData.ai_summary" class="card markdown-wrap ai-scroller" style="margin-top: 14px;">
       <MarkdownContent :content="searchData.ai_summary" />
     </div>
 
