@@ -1,3 +1,10 @@
+/**
+ * Axios 实例 — 统一封装：
+ *   - JWT 认证拦截
+ *   - 标准信封 {status_code, data, message} 自动解包/打包
+ *   - GET 请求超时/500 自动重试一次
+ *   - 全局 loading 状态 + error toast
+ */
 import axios from "axios";
 
 import { pinia } from "../stores";
@@ -41,6 +48,7 @@ const getErrorMessage = (error) => {
   );
 };
 
+// 通过 config.meta.silentLoading / silentError 控制副作用行为
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem("travel_access_token");
   const uiStore = useUiStore(pinia);

@@ -1,3 +1,9 @@
+"""
+AI 功能视图 — 旅游助手、景点问答、帖子润色、帖子总结、景点分析。
+
+提供同步和 SSE 流式两种响应模式，所有 AI 能力通过此模块统一对外暴露。
+"""
+
 from django.db.models import Q
 from django.http import StreamingHttpResponse
 from rest_framework import permissions, status
@@ -12,6 +18,7 @@ from apps.users.utils import get_user_display_name
 
 
 def stream_text_response(provider, model, prompt, temperature):
+    """通用的 SSE 流式响应包装器：将 AI 模型的逐块输出转化为 Server-Sent Events。"""
     def generate():
         content = ""
         chunk_count = 0
@@ -40,6 +47,7 @@ def stream_text_response(provider, model, prompt, temperature):
 
 
 def build_destination_context(destination):
+    """将景点及其酒店信息拼接为结构化的文本提示，供 AI prompt 使用。"""
     hotels = list(destination.hotels.all()[:3])
     hotel_lines = [
         f"{hotel.name}，每晚约 {hotel.price_per_night} 元，亮点：{hotel.highlights or '交通方便'}"
@@ -61,6 +69,7 @@ def build_destination_context(destination):
 
 
 def build_destination_analysis_context(destination):
+    """拼接景点分析所需的上下文：基础信息 + 评分分布 + 用户评价样本。"""
     reviews = list(destination.reviews.select_related("user__profile").all()[:10])
     rating_counts = {star: 0 for star in range(1, 6)}
     for review in destination.reviews.all():
@@ -77,6 +86,7 @@ def build_destination_analysis_context(destination):
 
 
 def find_destination(destination_name):
+    """按名称模糊查找景点：先精确匹配 name，再对 name/city/province/tags/summary 模糊搜索，按评分排序取最佳。"""
     destination_name = (destination_name or "").strip()
     if not destination_name:
         return None
@@ -95,6 +105,7 @@ def find_destination(destination_name):
 
 
 class ProviderListView(APIView):
+    """返回已配置且可用的 AI 模型提供方列表。"""
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, _request):
@@ -102,6 +113,7 @@ class ProviderListView(APIView):
 
 
 class TravelAssistantView(APIView):
+    """同步版旅行助手：根据出发地、目的地、天数、预算、偏好生成旅行建议。"""
     permission_classes = [permissions.IsAuthenticated]
 
     @staticmethod
@@ -128,6 +140,7 @@ class TravelAssistantView(APIView):
 
 
 class TravelAssistantStreamView(APIView):
+    """SSE 流式版旅行助手：复用 TravelAssistantView.build_prompt，流式返回。"""
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
@@ -138,6 +151,7 @@ class TravelAssistantStreamView(APIView):
 
 
 class PostPolishView(APIView):
+    """同步版帖子润色：对旅游社区帖子进行标题、正文和标签的润色优化。"""
     permission_classes = [permissions.IsAuthenticated]
 
     @staticmethod
@@ -165,6 +179,7 @@ class PostPolishView(APIView):
 
 
 class PostPolishStreamView(APIView):
+    """SSE 流式版帖子润色：复用 PostPolishView.build_prompt，流式返回。"""
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
@@ -175,6 +190,7 @@ class PostPolishStreamView(APIView):
 
 
 class PostSummaryStreamView(APIView):
+    """SSE 流式帖子总结：基于帖子正文及前 8 条评论生成结构化的内容总结。"""
     permission_classes = [permissions.IsAuthenticated]
 
     @staticmethod
@@ -217,6 +233,7 @@ class PostSummaryStreamView(APIView):
 
 
 class ScenicQAView(APIView):
+    """同步版景点问答：严格基于景点资料回答用户问题，资料外内容如实说明。"""
     permission_classes = [permissions.IsAuthenticated]
 
     @staticmethod
@@ -257,6 +274,7 @@ class ScenicQAView(APIView):
 
 
 class ScenicQAStreamView(APIView):
+    """SSE 流式版景点问答：先锁定景点，再流式输出 AI 回答。"""
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
@@ -304,6 +322,7 @@ class ScenicQAStreamView(APIView):
 
 
 class DestinationAnalysisStreamView(APIView):
+    """SSE 流式景点分析：整合评分分布与用户评价，生成四部分分析报告。"""
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):

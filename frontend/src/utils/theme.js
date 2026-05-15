@@ -1,3 +1,7 @@
+/**
+ * 主题系统 — 通过 CSS 自定义属性 (data-theme) 实现三套主题切换。
+ * 当前主题持久化在 localStorage，默认为 "sunset"（暖阳）。
+ */
 export const THEMES = [
   { value: "sunset", label: "暖阳" },
   { value: "coast", label: "海岸" },

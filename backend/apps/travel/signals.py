@@ -1,3 +1,7 @@
+"""
+Django 信号 — Destination 变更时自动同步 Elasticsearch 索引。
+"""
+
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 

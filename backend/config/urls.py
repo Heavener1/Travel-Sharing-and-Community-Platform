@@ -1,3 +1,7 @@
+"""
+项目根 URL 路由 — 统一挂载各应用的 /api/* 子路由。
+"""
+
 from django.contrib import admin
 from django.urls import include, path
 from rest_framework.decorators import api_view
@@ -6,6 +10,7 @@ from rest_framework.response import Response
 
 @api_view(["GET"])
 def api_root(_request):
+    """健康检查端点。"""
     return Response({"message": "旅游分享与交流平台 API 正常运行"})
 
 

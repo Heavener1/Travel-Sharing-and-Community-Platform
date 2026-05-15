@@ -1,3 +1,7 @@
+"""
+自定义 Django 中间件。
+"""
+
 import logging
 import time
 
@@ -5,6 +9,7 @@ logger = logging.getLogger("apps.middleware")
 
 
 class RequestLoggingMiddleware:
+    """记录每个 HTTP 请求的方法、路径、状态码及耗时（毫秒）。"""
     def __init__(self, get_response):
         self.get_response = get_response
 

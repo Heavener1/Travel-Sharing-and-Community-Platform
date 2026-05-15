@@ -1,3 +1,7 @@
+/**
+ * Vue Router 配置 — 9 条路由，全部懒加载。
+ * beforeEach: 触发路由加载动画；afterEach: 更新页面标题。
+ */
 import { createRouter, createWebHistory } from "vue-router";
 
 import { pinia } from "../stores";

@@ -1,3 +1,9 @@
+"""
+AI 服务层 — 统一封装 Kimi（Moonshot）和通义千问（Qwen / DashScope）调用。
+
+支持同步补全和流式补全两种模式，通过 OpenAI 兼容的 chat/completions 接口接入。
+"""
+
 import json
 
 import requests
@@ -5,7 +11,7 @@ from django.conf import settings
 
 
 class AIServiceError(Exception):
-    pass
+    """AI 调用统一异常类型。"""
 
 
 PROVIDER_OPTIONS = {
@@ -27,6 +33,7 @@ PROVIDER_OPTIONS = {
 
 
 def list_providers():
+    """列出已配置的 AI 提供方，标记 API Key 是否已设置。"""
     return {
         key: {
             "label": value["label"],
@@ -39,6 +46,7 @@ def list_providers():
 
 
 def _build_payload(provider, prompt, model=None, system_prompt=None, temperature=0.7, stream=False):
+    """构建 OpenAI 兼容的请求体。"""
     config = PROVIDER_OPTIONS[provider]
     return {
         "model": model or config["default_model"],
@@ -55,6 +63,7 @@ def _build_payload(provider, prompt, model=None, system_prompt=None, temperature
 
 
 def _validate_provider(provider):
+    """校验提供方名是否有效且 API Key 已配置，返回提供方配置。"""
     if provider not in PROVIDER_OPTIONS:
         raise AIServiceError("不支持的模型提供方。")
     config = PROVIDER_OPTIONS[provider]
@@ -64,6 +73,7 @@ def _validate_provider(provider):
 
 
 def chat_completion(provider, prompt, model=None, system_prompt=None, temperature=0.7):
+    """同步补全：发送请求，等待并返回完整的 AI 回复文本。"""
     config = _validate_provider(provider)
     payload = _build_payload(
         provider=provider,
@@ -93,6 +103,7 @@ def chat_completion(provider, prompt, model=None, system_prompt=None, temperatur
 
 
 def chat_completion_stream(provider, prompt, model=None, system_prompt=None, temperature=0.7):
+    """流式补全生成器：逐块 yield AI 回复的增量文本片段。"""
     config = _validate_provider(provider)
     payload = _build_payload(
         provider=provider,

@@ -1,4 +1,9 @@
+"""
+用户工具函数。
+"""
+
 def get_user_display_name(user):
+    """按优先级返回用户展示名：nickname > first_name > email > username。"""
     if not user:
         return ""
     profile = getattr(user, "profile", None)

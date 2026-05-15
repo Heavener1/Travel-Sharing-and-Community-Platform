@@ -1,3 +1,7 @@
+"""
+旅行模块视图 — 景点 CRUD、智能搜索（ES + AI 流式）、评价、收藏、个性化推荐、相关推荐、图片上传。
+"""
+
 import json
 import logging
 from collections import Counter, defaultdict
@@ -30,6 +34,7 @@ def get_destination_queryset():
 
 
 def update_destination_score(destination):
+    """根据景点所有评价的均分更新 score 字段。"""
     average = destination.reviews.aggregate(avg=Avg("rating")).get("avg")
     if average is not None:
         destination.score = round(float(average), 1)
@@ -54,6 +59,7 @@ def search_es(keyword, hidden_gem=False, limit=20):
 
 
 def pick_ai_provider():
+    """从已配置的 AI 提供方中选择一个可用实例（优先千问，其次 Kimi）。"""
     provider_info = list_providers()
     for provider in ("qwen", "kimi"):
         if provider_info.get(provider, {}).get("configured"):
@@ -86,6 +92,7 @@ def build_ai_search_prompt(keyword, source_items):
 
 
 def personalized_destination_queryset(user):
+    """根据用户行为（浏览/点赞/评价/收藏/行程）对景点加权排序，生成个性化推荐列表。"""
     base_qs = Destination.objects.all()
     if not user.is_authenticated:
         return base_qs.order_by("-is_hidden_gem", "-score")
@@ -180,6 +187,8 @@ class DestinationListView(generics.ListCreateAPIView):
 
 
 class SmartSearchView(APIView):
+    """智能搜索 — 无关键词时展示个性化推荐，有关键词时 ES 检索 + AI 摘要。"""
+
     def get(self, request):
         keyword = (request.query_params.get("q") or "").strip()
         hidden_gem = request.query_params.get("hidden_gem") == "true"
@@ -232,6 +241,8 @@ class SmartSearchView(APIView):
 
 
 class SmartSearchStreamView(APIView):
+    """SSE 流式智能搜索 — 先返回 ES 结果，再流式输出 AI 导览摘要。"""
+
     def get(self, request):
         keyword = (request.query_params.get("q") or "").strip()
         hidden_gem = request.query_params.get("hidden_gem") == "true"
@@ -253,7 +264,7 @@ class SmartSearchStreamView(APIView):
 
             yield sse_event("progress", {"progress": 10, "message": "正在检索 ElasticSearch"})
             items = search_es(keyword, hidden_gem=hidden_gem, limit=10)
-            yield sse_event("results", {"items": DestinationSerializer(items, many=True, context={"request": request}).data})
+            yield sse_event("es_results", {"items": DestinationSerializer(items, many=True, context={"request": request}).data})
 
             provider = pick_ai_provider()
             if not provider:
@@ -341,6 +352,7 @@ class FavoriteDestinationToggleView(APIView):
 
 
 class DestinationRelatedView(APIView):
+    """景点相关推荐 — 基于标签重合度、地理位置和用户偏好计算相关景点和帖子的综合评分。"""
     permission_classes = [permissions.AllowAny]
     MAX_CANDIDATES = 200
     MAX_POSTS = 200
@@ -424,6 +436,8 @@ class HotelListView(generics.ListAPIView):
 
 
 class RecommendationView(APIView):
+    """个性化推荐 — 认证用户基于行为画像推荐，匿名用户按评分排序。"""
+
     def get(self, request):
         if not request.user.is_authenticated:
             items = Destination.objects.all().order_by("-is_hidden_gem", "-score")[:6]

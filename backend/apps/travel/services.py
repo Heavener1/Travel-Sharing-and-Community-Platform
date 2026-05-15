@@ -1,3 +1,7 @@
+"""
+外部服务层 — Minio 文件上传/URL 解析 + Elasticsearch 索引/搜索。
+"""
+
 from pathlib import Path
 from uuid import uuid4
 import json
@@ -21,6 +25,7 @@ def get_minio_client():
 
 
 def ensure_bucket():
+    """确保 Minio Bucket 存在并设置公开读策略，返回客户端实例。"""
     client = get_minio_client()
     if not client.bucket_exists(settings.MINIO_BUCKET):
         client.make_bucket(settings.MINIO_BUCKET)
@@ -46,6 +51,7 @@ def ensure_bucket():
 
 
 def upload_fileobj(file_obj, folder="uploads"):
+    """上传文件到 Minio，返回 object_name、minio:// 引用和预签名 URL。"""
     client = ensure_bucket()
     suffix = Path(file_obj.name).suffix or ".bin"
     object_name = f"{folder}/{uuid4().hex}{suffix}"
@@ -80,6 +86,7 @@ def get_object_url(object_name):
 
 
 def resolve_media_url(url):
+    """将 minio:// 引用或 Minio 公共 URL 解析为有效期 7 天的预签名 URL。"""
     if not url:
         return url
     try:
@@ -100,6 +107,7 @@ def resolve_media_url(url):
 
 
 def get_es_client():
+    """获取 ES 客户端，ES 被禁用时抛出 RuntimeError。"""
     if not settings.ELASTICSEARCH_ENABLED:
         raise RuntimeError("ElasticSearch is disabled")
     return Elasticsearch(settings.ELASTICSEARCH_URL, request_timeout=10)
@@ -135,7 +143,7 @@ def rebuild_destination_index():
             "properties": {
                 "name": {"type": "text"},
                 "city": {"type": "text"},
-                "province": {"type": "keyword"},
+                "province": {"type": "text"},
                 "summary": {"type": "text"},
                 "tags": {"type": "text"},
                 "budget_level": {"type": "keyword"},
@@ -151,13 +159,14 @@ def rebuild_destination_index():
 
 
 def search_destination_ids(keyword):
+    """ES 全文检索景点：multi_match 跨 name/city/summary/tags 字段，返回匹配的 id 列表。"""
     client = get_es_client()
     response = client.search(
         index=settings.ELASTICSEARCH_INDEX,
         query={
             "multi_match": {
                 "query": keyword,
-                "fields": ["name^3", "city^2", "summary", "tags^2"],
+                "fields": ["name^3", "city^2", "province^2", "summary", "tags^2"],
             }
         },
         size=20,

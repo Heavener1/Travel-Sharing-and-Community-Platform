@@ -1,3 +1,8 @@
+/**
+ * 收藏 API — 双模式支持：
+ *   - 未登录：localStorage 本地存储
+ *   - 已登录：服务端 API，登录时自动同步本地收藏到云端
+ */
 import http from "./http";
 import { clearFavoriteIds, getFavoriteEntries, getFavoriteIds, saveFavoriteIds, toggleFavoriteId } from "../utils/collection";
 

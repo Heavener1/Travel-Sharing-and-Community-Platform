@@ -1,3 +1,6 @@
+/**
+ * 认证状态管理 — 登录/注册/登出/JWT 持久化/收藏同步。
+ */
 import { defineStore } from "pinia";
 
 import { syncLocalFavoritesToCloud } from "../api/favorites";
@@ -49,6 +52,7 @@ export const useAuthStore = defineStore("auth", {
       this.user = data;
     },
     async restore() {
+      // 页面刷新后从 localStorage 恢复 JWT，验证 token 有效性
       if (this.access && !this.user) {
         try {
           await this.fetchMe();

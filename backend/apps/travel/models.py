@@ -5,6 +5,7 @@ from apps.users.utils import get_user_display_name
 
 
 class Destination(models.Model):
+    """景点模型 — 核心实体，关联 hotel、review、favorite。"""
     name = models.CharField(max_length=120)
     city = models.CharField(max_length=80, db_index=True)
     province = models.CharField(max_length=80)
@@ -27,6 +28,7 @@ class Destination(models.Model):
 
 
 class DestinationReview(models.Model):
+    """景点评价 — 每用户只能对同一景点评价一次（unique constraint）。"""
     destination = models.ForeignKey(Destination, on_delete=models.CASCADE, related_name="reviews")
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="destination_reviews")
     rating = models.PositiveSmallIntegerField()

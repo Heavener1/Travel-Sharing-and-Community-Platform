@@ -1,3 +1,7 @@
+"""
+用户模块视图 — 图形验证码、注册、登录（JWT）、个人信息 CRUD、用户仪表盘。
+"""
+
 import base64
 import io
 import random
@@ -23,6 +27,7 @@ from apps.users.serializers import LoginSerializer, ProfileUpdateSerializer, Reg
 
 
 class CaptchaView(APIView):
+    """图形验证码 — PIL 生成 4 位字母数字图片，code 存入 Redis（5 分钟有效）。"""
     permission_classes = [permissions.AllowAny]
 
     def get(self, _request):
@@ -100,6 +105,7 @@ class MeView(APIView):
 
 
 class UserDashboardView(APIView):
+    """用户仪表盘 — 统计（帖子/行程/评价数量）+ 最近的帖子/行程/评价预览。"""
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):

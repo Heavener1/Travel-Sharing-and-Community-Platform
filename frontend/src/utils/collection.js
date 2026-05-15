@@ -1,3 +1,8 @@
+/**
+ * localStorage 收藏管理 — 游客模式下收藏存储在本地，登录后同步到服务端。
+ * 支持景点和帖子两种类型，分别使用不同的 storageKey。
+ */
+
 const normalizeEntry = (value) => {
   if (typeof value === "number" || typeof value === "string") {
     return {
@@ -15,6 +20,7 @@ const normalizeEntry = (value) => {
 };
 
 export const getFavoriteEntries = (storageKey) => {
+  /** 从 localStorage 获取收藏列表（完整条目，含 id 和 favorited_at）。 */
   if (typeof window === "undefined") return [];
   try {
     const raw = window.localStorage.getItem(storageKey);
@@ -26,7 +32,7 @@ export const getFavoriteEntries = (storageKey) => {
   }
 };
 
-export const getFavoriteIds = (storageKey) => getFavoriteEntries(storageKey).map((item) => item.id);
+export const getFavoriteIds = (storageKey) => getFavoriteEntries(storageKey).map((item) => item.id);  /** 仅返回收藏 ID 列表。 */
 
 export const saveFavoriteEntries = (storageKey, entries) => {
   if (typeof window === "undefined") return;
@@ -63,6 +69,7 @@ export const clearFavoriteIds = (storageKey) => {
 };
 
 export const shareContent = async ({ title, path, summary, onSuccess, onError }) => {
+  /** Web Share API 分享，不支持时自动降级到剪贴板复制。 */
   if (typeof window === "undefined") return false;
   const absoluteUrl = new URL(path, window.location.origin).toString();
   try {

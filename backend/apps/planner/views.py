@@ -1,3 +1,7 @@
+"""
+行程规划模块视图 — 手动行程 CRUD + 智能行程生成（基于景点搜索自动排布）。
+"""
+
 from collections import defaultdict
 
 from django.db.models import Q
@@ -23,6 +27,7 @@ class TripPlanListCreateView(generics.ListCreateAPIView):
 
 
 class TripGeneratorView(APIView):
+    """智能行程生成 — 根据出发地/目的地/天数/预算/偏好自动匹配景点并创建行程方案。"""
     permission_classes = [permissions.IsAuthenticated]
     MAX_CANDIDATES = 100
 

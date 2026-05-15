@@ -1,3 +1,6 @@
+/**
+ * 阅读进度 Composable — 监听 scroll/resize 事件，返回页面阅读百分比（0-100）。
+ */
 import { onBeforeUnmount, onMounted, ref } from "vue";
 
 export const useReadingProgress = () => {

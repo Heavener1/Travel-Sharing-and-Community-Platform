@@ -1,3 +1,7 @@
+/**
+ * AI 流式响应 Composable — 封装 SSE 请求的 loading/progress/status/text 状态。
+ * 通过 start() 发起流式请求，自动解析 progress/content/done/error 事件。
+ */
 import { ref } from "vue";
 import { streamRequest } from "../api/stream";
 

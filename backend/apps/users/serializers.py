@@ -1,3 +1,7 @@
+"""
+用户序列化器 — 注册/登录/资料更新/用户展示，含验证码校验 Mixin。
+"""
+
 from urllib.parse import quote
 
 from django.contrib.auth import authenticate
@@ -12,6 +16,7 @@ from apps.users.utils import get_user_display_name
 
 
 def build_default_avatar(label):
+    """为没有头像的用户生成内嵌 SVG 默认头像。"""
     safe_label = (label or "旅友").strip()[:2] or "旅友"
     svg = f"""
     <svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">
@@ -69,6 +74,7 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class CaptchaValidationMixin:
+    """验证码校验 Mixin — 从 Redis 读取并验证图形验证码，通过后删除该 key。"""
     def validate_captcha(self, attrs):
         captcha_key = attrs.pop("captcha_key", "")
         captcha_code = attrs.pop("captcha_code", "")

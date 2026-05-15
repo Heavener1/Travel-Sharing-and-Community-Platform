@@ -1,9 +1,15 @@
+"""
+自定义 DRF 渲染器 — 将非流式 JSON 响应统一包装为:
+{status_code, data, message} 标准信封格式。
+"""
+
 from collections.abc import Mapping
 
 from rest_framework.renderers import JSONRenderer
 
 
 def _first_message(data):
+    """从响应数据中递归提取第一条 message/detail/non_field_errors 文本。"""
     if data is None:
         return ""
     if isinstance(data, str):

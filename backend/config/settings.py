@@ -1,3 +1,8 @@
+"""
+Django 项目配置 — 数据库、缓存、文件存储、搜索、AI 服务、日志。
+所有敏感信息通过 .env 环境变量注入，默认值适用于本地开发。
+"""
+
 import os
 from datetime import timedelta
 from pathlib import Path
@@ -7,6 +12,7 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
+# ---------- 核心 ----------
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "travel-sharing-dev-secret-key-2026-demo-project")
 DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() == "true"
 ALLOWED_HOSTS = [
@@ -17,6 +23,7 @@ ALLOWED_HOSTS = [
 if "*" in ALLOWED_HOSTS:
     ALLOWED_HOSTS = ["*"]
 
+# ---------- 应用注册 ----------
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -46,6 +53,7 @@ MIDDLEWARE = [
     "config.middleware.RequestLoggingMiddleware",
 ]
 
+# ---------- 中间件 + 模板 ----------
 ROOT_URLCONF = "config.urls"
 
 TEMPLATES = [
@@ -65,6 +73,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
+# ---------- 数据库（MySQL / SQLite） ----------
 db_engine = os.getenv("DJANGO_DB_ENGINE", "sqlite").lower()
 if db_engine == "mysql":
     DATABASES = {
@@ -86,6 +95,7 @@ else:
         }
     }
 
+# ---------- Redis 缓存 ----------
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
@@ -102,6 +112,7 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
+# ---------- 国际化 ----------
 LANGUAGE_CODE = "zh-hans"
 TIME_ZONE = "Asia/Shanghai"
 
@@ -115,6 +126,7 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# ---------- DRF + JWT ----------
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": (
         "config.api.StandardJSONRenderer",
@@ -151,6 +163,7 @@ else:
     ]
     CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS.copy()
 
+# ---------- Minio 对象存储 ----------
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "8.137.70.186:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "admin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "password123")
@@ -161,10 +174,12 @@ MINIO_PUBLIC_BASE = os.getenv(
     f"http{'s' if MINIO_SECURE else ''}://{MINIO_ENDPOINT}/{MINIO_BUCKET}",
 )
 
+# ---------- Elasticsearch ----------
 ELASTICSEARCH_URL = os.getenv("ELASTICSEARCH_URL", "http://127.0.0.1:9200")
 ELASTICSEARCH_INDEX = os.getenv("ELASTICSEARCH_INDEX", "travel_destinations")
 ELASTICSEARCH_ENABLED = os.getenv("ELASTICSEARCH_ENABLED", "True").lower() == "true"
 
+# ---------- AI 服务（Kimi + 千问） ----------
 KIMI_API_KEY = os.getenv("KIMI_API_KEY", "")
 KIMI_MODEL = os.getenv("KIMI_MODEL", "kimi-k2.5")
 KIMI_BASE_URL = os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1/chat/completions")
@@ -176,6 +191,7 @@ QWEN_BASE_URL = os.getenv(
     "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
 )
 
+# ---------- 日志 ----------
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,

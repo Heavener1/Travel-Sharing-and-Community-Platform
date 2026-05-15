@@ -5,6 +5,7 @@ from apps.travel.models import Destination
 
 
 class Post(models.Model):
+    """社区帖子 — 需审核（pending→approved/rejected），关联景点和用户。"""
     STATUS_CHOICES = (
         ("pending", "待审核"),
         ("approved", "已通过"),
@@ -35,6 +36,7 @@ class Post(models.Model):
 
 
 class PostComment(models.Model):
+    """帖子评论 — 支持嵌套回复（parent 自引用 FK）。"""
     STATUS_CHOICES = (
         ("pending", "待审核"),
         ("approved", "已通过"),
@@ -53,6 +55,7 @@ class PostComment(models.Model):
 
 
 class PostLike(models.Model):
+    """帖子点赞 — post + user 唯一约束，即一张帖子同一用户只能点赞一次。"""
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="likes")
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="post_likes")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -72,6 +75,7 @@ class FavoritePost(models.Model):
 
 
 class Notification(models.Model):
+    """通知 — 用户间互动产生的消息（点赞、评论、回复）。"""
     TYPE_CHOICES = (
         ("post_like", "帖子点赞"),
         ("post_comment", "帖子评论"),
@@ -98,6 +102,7 @@ class Notification(models.Model):
 
 
 class UserAction(models.Model):
+    """用户行为埋点 — 记录每一次对景点的操作，驱动个性化推荐引擎。"""
     ACTION_CHOICES = (
         ("view", "浏览"),
         ("like", "点赞"),

@@ -1,3 +1,7 @@
+"""
+社交模块视图 — 帖子 CRUD（含审核）、评论（嵌套回复）、点赞、收藏、通知、管理后台、批量造数据。
+"""
+
 import random
 from collections import defaultdict
 from datetime import timedelta
@@ -101,6 +105,7 @@ POST_TAG_LIBRARY = [
 
 
 def create_notification(*, recipient, actor, notification_type, message, post=None, comment=None):
+    """创建一条通知 — 发件人不能是收件人自身，减少无意义打扰。"""
     if not recipient or not actor or recipient == actor:
         return None
     return Notification.objects.create(
@@ -236,6 +241,7 @@ class CommentCreateView(generics.CreateAPIView):
 
 
 class LikeToggleView(APIView):
+    """点赞切换 — get_or_create + delete 实现 toggle 语义。"""
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, post_id):
@@ -279,6 +285,7 @@ class FavoritePostToggleView(APIView):
 
 
 class PostRelatedView(APIView):
+    """帖子相关推荐 — 基于标签、目的地、标题相似度及用户偏好计算相关帖子和景点。"""
     permission_classes = [permissions.AllowAny]
 
     def get(self, request, post_id):
@@ -374,6 +381,7 @@ class ModerationSummaryView(APIView):
 
 
 class AdminDashboardView(APIView):
+    """管理后台 — 总览统计 + 发帖时间段分布 + 7 日趋势。"""
     permission_classes = [permissions.IsAdminUser]
 
     def get(self, _request):
@@ -440,6 +448,7 @@ class AdminDashboardView(APIView):
 
 
 class AdminBatchSeedView(APIView):
+    """管理员批量造数据 — 支持一键生成测试账号、景点、帖子，用于开发/演示环境。"""
     permission_classes = [permissions.IsAdminUser]
 
     @transaction.atomic

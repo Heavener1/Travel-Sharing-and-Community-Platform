@@ -1,6 +1,12 @@
+/**
+ * SSE 流式请求客户端 — 基于 fetch + ReadableStream 增量解析 Server-Sent Events。
+ * 不依赖 EventSource，可自定义请求头（支持 JWT 认证）。
+ */
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api";
 
 const parseEventBlocks = (buffer, onEvent) => {
+  /** 从 SSE 缓冲区中逐个解析完整的 event+data 块，通过 onEvent 回调分发。 */
   let cursor = buffer.indexOf("\n\n");
   while (cursor !== -1) {
     const rawBlock = buffer.slice(0, cursor);
